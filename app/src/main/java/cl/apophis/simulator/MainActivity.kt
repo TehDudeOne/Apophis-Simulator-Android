@@ -11,6 +11,7 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import java.time.LocalDate
 import java.util.Locale
@@ -30,6 +31,8 @@ class MainActivity:Activity() {
     private val handler=Handler(Looper.getMainLooper())
     private var playing=false
     private var daysPerSecond=1.0
+    private lateinit var timeSeek:SeekBar
+    private var seeking=false
     private var lastFrame=0L
     private var version=0
     private var loading=false
@@ -47,9 +50,10 @@ class MainActivity:Activity() {
             lastFrame=now
             if(pairDate==date && pair!=null) {
                 phase+=elapsed*daysPerSecond
-                if(phase>=1.0) {
-                    date=date.plusDays(1)
-                    phase-=1.0
+                if(phase>=1.0 || phase<0.0) {
+                    val delta=kotlin.math.floor(phase).toLong()
+                    date=date.plusDays(delta)
+                    phase-=delta
                     requestPair()
                     requestHorizons()
                 }
@@ -107,6 +111,22 @@ class MainActivity:Activity() {
         }
         playButton=buttons("▶ Play" to {togglePlay()}, "-1 d" to {move(-1)},
             "+1 d" to {move(1)}, "2029" to {date=LocalDate.of(2029,4,13);phase=0.0;requestPair();requestHorizons()})[0]
+        buttons("⏪ REW" to {setSpeed(-kotlin.math.abs(daysPerSecond))}, "⏹" to {if(playing) togglePlay()},
+            "⏩ FFW" to {setSpeed(kotlin.math.abs(daysPerSecond))})
+        timeSeek=SeekBar(this).apply {
+            max=86400
+            progress=(phase*86400).toInt()
+            setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(bar:SeekBar?) {seeking=true}
+                override fun onStopTrackingTouch(bar:SeekBar?) {seeking=false;showFrame()}
+                override fun onProgressChanged(bar:SeekBar?,value:Int,fromUser:Boolean) {
+                    if(fromUser) {phase=value/86400.0;showFrame()}
+                }
+            })
+        }
+        controls.addView(timeSeek)
+        buttons("◀ 1 s" to {stepSeconds(-1)}, "◀ 1 min" to {stepSeconds(-60)},
+            "1 min ▶" to {stepSeconds(60)}, "1 s ▶" to {stepSeconds(1)})
         buttons("0,1 d/s" to {setSpeed(.1)}, "1 d/s" to {setSpeed(1.0)},
             "7 d/s" to {setSpeed(7.0)})
         buttons("☉ Sol" to {space.focus=0;space.panX=0.0;space.panY=0.0;space.zoom=1.0},
@@ -148,6 +168,15 @@ class MainActivity:Activity() {
             lastFrame=SystemClock.elapsedRealtime()
             handler.post(frames)
         }
+    }
+    private fun stepSeconds(seconds:Int) {
+        val total=phase*86400.0+seconds
+        val delta=kotlin.math.floor(total/86400.0).toLong()
+        date=date.plusDays(delta)
+        phase=(total-delta*86400.0)/86400.0
+        requestPair()
+        requestHorizons()
+        showFrame()
     }
     private fun move(days:Long) {
         date=date.plusDays(days)
@@ -194,6 +223,7 @@ class MainActivity:Activity() {
     private fun showFrame() {
         dateLabel.text=String.format(Locale.US,"%s · %02d:%02d UTC",date,
             (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59))
+        if(::timeSeek.isInitialized && !seeking) timeSeek.progress=(phase*86400).toInt().coerceIn(0,86400)
         val p=pair ?: return
         if(pairDate!=date) return
         val t=phase.coerceIn(0.0,1.0)
