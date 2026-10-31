@@ -1,23 +1,16 @@
-# Apophis Simulator Android
+# Apophis Simulator Android 0.4.0 (experimental)
 
-Aplicación Android nativa Kotlin. Versión experimental **0.2.0**.
+Native Kotlin Android app with OpenGL ES 2.0 rendering and approximate solar-system dynamics.
 
-## Implementado
-- Integrador de velocidad Verlet para una partícula de prueba bajo gravedad solar y ocho planetas.
-- Visualización orbital espacial con proyección ortográfica inclinada y zoom.
-- Controles de fecha y distancia Tierra-Apophis aproximada.
-- Descarga de elementos osculadores desde NASA/JPL SBDB API y caché local para uso sin conexión.
-- GitHub Actions compila un APK debug descargable en la pestaña Actions.
+## Features
+- OpenGL ES 2.0 shaded 3D sphere geometry for the Sun, eight planets and Apophis (apparent sizes enlarged for visibility).
+- Smooth frame animation via interpolation between daily integration snapshots, with playback speed controls.
+- Pinch zoom, touch pan, heliocentric/geocentric camera, 35,000 km camera-range preset.
+- JPL Horizons **geometric Earth–Apophis separation at 00:00 UTC** retrieved independently using heliocentric vectors; daily offline cache.
+- JPL SBDB osculating elements with offline cache, integrated in a simplified solar-system model.
 
-## Limitaciones científicas
-- Los planetas siguen órbitas **circulares y coplanares aproximadas**, sin efemérides de alta precisión.
-- Los elementos de JPL son osculadores en su época; propagarlos con este modelo aproximado **no reproduce Horizons**.
-- La distancia calculada **no puede utilizarse para determinar el acercamiento de 2029**, probabilidades de impacto ni regiones de colisión.
-- No se modela la Luna, relatividad, perturbaciones no gravitatorias, incertidumbre orbital ni covarianzas.
-- La visualización es una proyección 3D en Canvas, no un motor OpenGL.
-- El fallback orbital es ilustrativo; pulsa 'Actualizar JPL' con conexión para descargar elementos reales.
+## Critical scientific limitations
+The drawn planetary positions use approximate circular coplanar orbits; their phases are not high-precision ephemerides. The asteroid is propagated with velocity Verlet and simplified gravitational perturbations. **The rendered Earth–Apophis separation is not a reliable astronomical prediction.** The separate Horizons reference (when available) is an actual reference distance for 00:00 UTC on the selected day, not for the continuously interpolated animation time. The app is not an impact predictor. Apophis has no predicted Earth impact in 2029.
 
-**Apophis no tiene un impacto previsto con la Tierra en 2029.** Los escenarios de impacto serán módulos hipotéticos separados.
-
-## Compilación
-GitHub Actions ejecuta Gradle y publica `apophis-simulator-debug-apk` si la compilación pasa.
+## Build
+The GitHub Actions workflow builds a debug APK. Debug builds on separate runners can have different signing keys and cannot reliably update each other. A stable release-signing pipeline remains to be implemented.
