@@ -7,6 +7,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.graphics.Color
 import android.view.Gravity
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -59,12 +60,22 @@ class MainActivity:Activity() {
     }
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
+        if(savedInstanceState!=null) {
+            date=LocalDate.parse(savedInstanceState.getString("date","2029-04-13"))
+            phase=savedInstanceState.getDouble("phase",0.0)
+            daysPerSecond=savedInstanceState.getDouble("speed",1.0)
+        }
         window.statusBarColor=Color.rgb(6,13,29)
         window.navigationBarColor=Color.rgb(6,13,29)
         val root=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(6,13,29))
             setPadding(10,8,10,8)
+            setOnApplyWindowInsetsListener { view, insets ->
+                val bars=insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                view.setPadding(10+bars.left,8+bars.top,10+bars.right,8+bars.bottom)
+                insets
+            }
         }
         fun label(size:Float)=TextView(this).apply {
             textSize=size
@@ -96,8 +107,8 @@ class MainActivity:Activity() {
         }
         playButton=buttons("▶ Play" to {togglePlay()}, "-1 d" to {move(-1)},
             "+1 d" to {move(1)}, "2029" to {date=LocalDate.of(2029,4,13);phase=0.0;requestPair();requestHorizons()})[0]
-        buttons("0,1 d/s" to {daysPerSecond=.1}, "1 d/s" to {daysPerSecond=1.0},
-            "7 d/s" to {daysPerSecond=7.0})
+        buttons("0,1 d/s" to {setSpeed(.1)}, "1 d/s" to {setSpeed(1.0)},
+            "7 d/s" to {setSpeed(7.0)})
         buttons("☉ Sol" to {space.focus=0;space.panX=0.0;space.panY=0.0;space.zoom=1.0},
             "⊕ Tierra" to {space.focus=1;space.panX=0.0;space.panY=0.0;space.zoom=200.0},
             "35.000 km" to {space.earthRange(35000.0)})
@@ -116,6 +127,18 @@ class MainActivity:Activity() {
         repository.cached()?.let {elements=it}
         requestPair()
         requestHorizons()
+        if(savedInstanceState!=null) {
+            space.focus=savedInstanceState.getInt("focus",0)
+            space.zoom=savedInstanceState.getDouble("zoom",1.0)
+            space.panX=savedInstanceState.getDouble("panX",0.0)
+            space.panY=savedInstanceState.getDouble("panY",0.0)
+            if(savedInstanceState.getBoolean("playing",false)) togglePlay()
+        }
+    }
+    private fun setSpeed(speed:Double) {
+        daysPerSecond=speed
+        if(!playing) togglePlay()
+        showFrame()
     }
     private fun togglePlay() {
         playing=!playing
@@ -186,7 +209,8 @@ class MainActivity:Activity() {
         val model=String.format(Locale.US,"Distancia escena JPL: %,.0f km",approximate*149597870.7)
         val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
             else "JPL Horizons: pendiente / sin conexión"
-        status.text="$reference\n$model"
+        val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
+        status.text="$reference\n$model$playback"
     }
     private fun requestHorizons() {
         val requested=date
@@ -213,6 +237,19 @@ class MainActivity:Activity() {
                     .onFailure {status.text="JPL no disponible: ${it.message}"}
             }
         }
+    }
+    override fun onSaveInstanceState(outState:Bundle) {
+        outState.putString("date",date.toString())
+        outState.putDouble("phase",phase)
+        outState.putDouble("speed",daysPerSecond)
+        outState.putBoolean("playing",playing)
+        if(::space.isInitialized) {
+            outState.putInt("focus",space.focus)
+            outState.putDouble("zoom",space.zoom)
+            outState.putDouble("panX",space.panX)
+            outState.putDouble("panY",space.panY)
+        }
+        super.onSaveInstanceState(outState)
     }
     override fun onResume() {super.onResume();if(::space.isInitialized) space.onResume()}
     override fun onPause() {
