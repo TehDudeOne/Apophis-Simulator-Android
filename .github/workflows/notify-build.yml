@@ -1,0 +1,42 @@
+name: Notify Android build result
+
+on:
+  workflow_run:
+    workflows:
+      - Build Android APK
+    types:
+      - completed
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify repository owner with build result
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const outcome = run.conclusion === 'success' ? 'EXITOSA' : 'FALLIDA';
+            const shortSha = run.head_sha.substring(0, 7);
+            const title = `[Apophis APK] Compilación ${outcome} #${run.run_number} (${shortSha})`;
+            const body = [
+              `Resultado: **${outcome}**`,
+              `Commit: \`${run.head_sha}\``,
+              `Rama: \`${run.head_branch}\``,
+              `Registro y APK (si compiló): ${run.html_url}`,
+              '',
+              'Aviso automático generado al finalizar GitHub Actions.'
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              assignees: ['TehDudeOne']
+            });
