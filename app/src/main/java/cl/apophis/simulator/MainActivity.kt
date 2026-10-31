@@ -2,9 +2,10 @@ package cl.apophis.simulator
 
 import android.app.Activity
 import android.os.Bundle
-import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.graphics.Color
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -14,121 +15,198 @@ import java.time.LocalDate
 import java.util.Locale
 import java.util.concurrent.Executors
 
-class MainActivity : Activity() {
+class MainActivity:Activity() {
     private var date=LocalDate.of(2029,4,13)
+    private var phase=0.0
     private var elements=OrbitEngine.fallback
-    private lateinit var orbitView: OrbitView
-    private lateinit var status: TextView
-    private lateinit var dateText: TextView
-    private lateinit var playButton: Button
+    private lateinit var space:SpaceView
+    private lateinit var status:TextView
+    private lateinit var dateLabel:TextView
+    private lateinit var playButton:Button
     private val repository by lazy { JplRepository(this) }
+    private val horizons by lazy { HorizonsDistance(this) }
     private val executor=Executors.newSingleThreadExecutor()
     private val handler=Handler(Looper.getMainLooper())
     private var playing=false
-    private var busy=false
-    private var generation=0
-    private var daysPerFrame=1L
-    private val tick=object: Runnable {
+    private var daysPerSecond=1.0
+    private var lastFrame=0L
+    private var version=0
+    private var loading=false
+    private var pair:Pair<Snapshot,Snapshot>?=null
+    private var pairDate:LocalDate?=null
+    private var horizonsKm:Double?=null
+    private var horizonsDate:LocalDate?=null
+
+    private val frames=object:Runnable {
         override fun run() {
             if(!playing) return
-            if(!busy) { date=date.plusDays(daysPerFrame); render() }
-            handler.postDelayed(this,500)
+            val now=SystemClock.elapsedRealtime()
+            val elapsed=((now-lastFrame).coerceIn(0,150)).toDouble()/1000.0
+            lastFrame=now
+            if(pairDate==date && pair!=null) {
+                phase+=elapsed*daysPerSecond
+                if(phase>=1.0) {
+                    date=date.plusDays(1)
+                    phase-=1.0
+                    requestPair()
+                    requestHorizons()
+                }
+            }
+            showFrame()
+            handler.postDelayed(this,33)
         }
     }
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor=Color.rgb(6,13,29)
+        window.navigationBarColor=Color.rgb(6,13,29)
         val root=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(6,13,29))
             setPadding(10,8,10,8)
         }
-        fun label(size:Float):TextView=TextView(this).apply {
-            textSize=size;setTextColor(Color.WHITE);gravity=Gravity.CENTER
+        fun label(size:Float)=TextView(this).apply {
+            textSize=size
+            setTextColor(Color.WHITE)
+            gravity=Gravity.CENTER
             setPadding(2,3,2,3)
         }
-        root.addView(label(22f).apply { text="APOPHIS SIMULATOR" })
-        status=label(12f);root.addView(status)
-        orbitView=OrbitView(this)
-        root.addView(orbitView,LinearLayout.LayoutParams(-1,0,1f))
-        dateText=label(17f);root.addView(dateText)
-        val controls=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+        root.addView(label(20f).apply {text="APOPHIS SIMULATOR"})
+        status=label(12f)
+        root.addView(status)
+        space=SpaceView(this)
+        root.addView(space,LinearLayout.LayoutParams(-1,0,1f))
+        dateLabel=label(17f)
+        root.addView(dateLabel)
+        val controls=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
         fun buttons(vararg actions:Pair<String,()->Unit>):List<Button> {
-            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+            val row=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
             val result=actions.map { (title,action) ->
                 Button(this).apply {
                     text=title
                     textSize=12f
                     setPadding(0,0,0,0)
-                    setOnClickListener { action() }
+                    setOnClickListener {action()}
                     row.addView(this,LinearLayout.LayoutParams(0,-2,1f))
                 }
             }
             controls.addView(row)
             return result
         }
-        playButton=buttons("▶ Play" to { togglePlay() }, "-1 d" to { move(-1) },
-            "+1 d" to { move(1) }, "2029" to { date=LocalDate.of(2029,4,13);render() })[0]
-        buttons("1 d/paso" to { daysPerFrame=1 }, "7 d/paso" to { daysPerFrame=7 },
-            "30 d/paso" to { daysPerFrame=30 })
-        buttons("☉ Sol" to { orbitView.earthCentered=false;orbitView.zoom=1.0 },
-            "⊕ Tierra" to { orbitView.earthCentered=true;orbitView.zoom=200.0 },
-            "35.000 km" to { orbitView.setEarthRange(35000.0) })
-        buttons("Zoom +" to { orbitView.zoom*=2.0 },
-            "Zoom -" to { orbitView.zoom/=2.0 },
-            "Actualizar JPL" to { refreshJpl() })
+        playButton=buttons("▶ Play" to {togglePlay()}, "-1 d" to {move(-1)},
+            "+1 d" to {move(1)}, "2029" to {date=LocalDate.of(2029,4,13);phase=0.0;requestPair();requestHorizons()})[0]
+        buttons("0,1 d/s" to {daysPerSecond=.1}, "1 d/s" to {daysPerSecond=1.0},
+            "7 d/s" to {daysPerSecond=7.0})
+        buttons("☉ Sol" to {space.earthCentered=false;space.zoom=1.0},
+            "⊕ Tierra" to {space.earthCentered=true;space.zoom=200.0},
+            "35.000 km" to {space.earthRange(35000.0)})
+        buttons("Zoom +" to {space.zoom*=2.0},"Zoom -" to {space.zoom/=2.0},
+            "Actualizar JPL" to {refreshJpl()})
         val scroll=ScrollView(this)
         scroll.addView(controls)
         root.addView(scroll,LinearLayout.LayoutParams(-1,-2))
         root.addView(label(11f).apply {
-            text="AVISO: modelo N-cuerpos simplificado, planetas circulares. Las distancias NO son predicciones fiables del encuentro de 2029."
+            text="Posiciones dibujadas: modelo orbital aproximado. Distancia JPL Horizons: dato independiente a las 00:00 UTC. No usar la escena para predecir impactos."
         })
         setContentView(root)
-        repository.cached()?.let { elements=it }
-        render()
+        repository.cached()?.let {elements=it}
+        requestPair()
+        requestHorizons()
     }
     private fun togglePlay() {
         playing=!playing
         playButton.text=if(playing) "⏸ Pausa" else "▶ Play"
-        handler.removeCallbacks(tick)
-        if(playing) handler.post(tick)
+        handler.removeCallbacks(frames)
+        if(playing) {
+            lastFrame=SystemClock.elapsedRealtime()
+            handler.post(frames)
+        }
     }
-    private fun move(days:Long) { date=date.plusDays(days);render() }
-    private fun render() {
-        val selectedDate=date
-        val selectedElements=elements
-        val ticket=++generation
-        dateText.text=selectedDate.toString()
-        if(busy) return
-        busy=true
+    private fun move(days:Long) {
+        date=date.plusDays(days)
+        phase=0.0
+        requestPair()
+        requestHorizons()
+    }
+    private fun requestPair() {
+        val requested=date
+        val selected=elements
+        val token=++version
+        pair=null
+        pairDate=null
+        dateLabel.text=requested.toString()
+        if(loading) return
+        loading=true
         executor.execute {
-            val result=runCatching { OrbitEngine.compute(selectedElements,selectedDate) }
+            val result=runCatching {
+                OrbitEngine.compute(selected,requested) to OrbitEngine.compute(selected,requested.plusDays(1))
+            }
             runOnUiThread {
-                busy=false
+                loading=false
                 if(isFinishing || isDestroyed) return@runOnUiThread
-                if(ticket!=generation) { render();return@runOnUiThread }
-                result.onSuccess { snapshot ->
-                    orbitView.snapshot=snapshot
-                    val km=snapshot.earthDistanceAu*149597870.7
-                    val source=if(selectedElements==OrbitEngine.fallback) "Órbita ilustrativa" else "Elementos JPL"
-                    status.text=String.format(Locale.US,"%s · distancia aproximada: %,.0f km",source,km)
-                }.onFailure { status.text="Error: ${it.message}" }
+                if(token!=version) {requestPair();return@runOnUiThread}
+                result.onSuccess {pair=it;pairDate=requested;showFrame()}
+                    .onFailure {status.text="Error orbital: ${it.message}"}
+            }
+        }
+    }
+    private fun interpolate(a:V3,b:V3,t:Double)=a*(1.0-t)+b*t
+    private fun showFrame() {
+        dateLabel.text=String.format(Locale.US,"%s · %02d:%02d UTC",date,
+            (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59))
+        val p=pair ?: return
+        if(pairDate!=date) return
+        val t=phase.coerceIn(0.0,1.0)
+        val first=p.first;val second=p.second
+        val earth=interpolate(first.earth,second.earth,t)
+        val asteroid=interpolate(first.asteroid,second.asteroid,t)
+        val planets=first.planets.mapIndexed {index,item ->
+            item.first to interpolate(item.second,second.planets[index].second,t)
+        }
+        val approximate=(earth-asteroid).norm()
+        space.snapshot=Snapshot(date,asteroid,earth,planets,approximate)
+        val ref=if(horizonsDate==date) horizonsKm else null
+        val model=String.format(Locale.US,"Modelo aproximado: %,.0f km",approximate*149597870.7)
+        val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
+            else "JPL Horizons: pendiente / sin conexión"
+        status.text="$reference\n$model"
+    }
+    private fun requestHorizons() {
+        val requested=date
+        horizonsDate=requested
+        horizonsKm=horizons.cached(requested)
+        showFrame()
+        if(horizonsKm!=null) return
+        executor.execute {
+            val result=runCatching {horizons.query(requested)}
+            runOnUiThread {
+                if(isFinishing || isDestroyed || requested!=date) return@runOnUiThread
+                result.onSuccess {horizonsKm=it;showFrame()}
+                    .onFailure {status.text="JPL Horizons no disponible: ${it.message}\nDistancia de escena no validada"}
             }
         }
     }
     private fun refreshJpl() {
-        status.text="Consultando NASA/JPL..."
+        status.text="Consultando elementos NASA/JPL..."
         executor.execute {
-            val result=runCatching { repository.refresh() }
+            val result=runCatching {repository.refresh()}
             runOnUiThread {
                 if(isFinishing || isDestroyed) return@runOnUiThread
-                result.onSuccess { elements=it;render() }
-                    .onFailure { status.text="JPL no disponible: ${it.message}" }
+                result.onSuccess {elements=it;requestPair();requestHorizons()}
+                    .onFailure {status.text="JPL no disponible: ${it.message}"}
             }
         }
     }
-    override fun onDestroy() {
+    override fun onResume() {super.onResume();if(::space.isInitialized) space.onResume()}
+    override fun onPause() {
+        if(::space.isInitialized) space.onPause()
         playing=false
-        handler.removeCallbacks(tick)
+        handler.removeCallbacks(frames)
+        if(::playButton.isInitialized) playButton.text="▶ Play"
+        super.onPause()
+    }
+    override fun onDestroy() {
+        handler.removeCallbacks(frames)
         executor.shutdownNow()
         super.onDestroy()
     }
