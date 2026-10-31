@@ -1,9 +1,23 @@
 # Apophis Simulator Android
 
-Aplicación Android nativa en Kotlin. **Estado: prototipo preliminar.**
+Aplicación Android nativa Kotlin. Versión experimental **0.2.0**.
 
-La versión actual calcula la energía cinética de un impacto *hipotético* usando un modelo de dos cuerpos; **no predice un impacto de Apophis en 2029**. El motor N-cuerpos, la descarga JPL y el visor 3D están pendientes.
+## Implementado
+- Integrador de velocidad Verlet para una partícula de prueba bajo gravedad solar y ocho planetas.
+- Visualización orbital espacial con proyección ortográfica inclinada y zoom.
+- Controles de fecha y distancia Tierra-Apophis aproximada.
+- Descarga de elementos osculadores desde NASA/JPL SBDB API y caché local para uso sin conexión.
+- GitHub Actions compila un APK debug descargable en la pestaña Actions.
 
-## Compilar
+## Limitaciones científicas
+- Los planetas siguen órbitas **circulares y coplanares aproximadas**, sin efemérides de alta precisión.
+- Los elementos de JPL son osculadores en su época; propagarlos con este modelo aproximado **no reproduce Horizons**.
+- La distancia calculada **no puede utilizarse para determinar el acercamiento de 2029**, probabilidades de impacto ni regiones de colisión.
+- No se modela la Luna, relatividad, perturbaciones no gravitatorias, incertidumbre orbital ni covarianzas.
+- La visualización es una proyección 3D en Canvas, no un motor OpenGL.
+- El fallback orbital es ilustrativo; pulsa 'Actualizar JPL' con conexión para descargar elementos reales.
 
-GitHub Actions ejecuta `gradle :app:assembleDebug` y publica el APK de depuración como artefacto si la compilación tiene éxito. El APK de depuración no está destinado a distribución pública.
+**Apophis no tiene un impacto previsto con la Tierra en 2029.** Los escenarios de impacto serán módulos hipotéticos separados.
+
+## Compilación
+GitHub Actions ejecuta Gradle y publica `apophis-simulator-debug-apk` si la compilación pasa.
