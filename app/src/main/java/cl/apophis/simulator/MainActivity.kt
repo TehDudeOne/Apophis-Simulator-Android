@@ -100,7 +100,9 @@ class MainActivity:Activity() {
             val result=actions.map { (title,action) ->
                 Button(this).apply {
                     text=title
-                    textSize=12f
+                    textSize=10f
+                    minHeight=0
+                    minimumHeight=0
                     setPadding(0,0,0,0)
                     setOnClickListener {action()}
                     row.addView(this,LinearLayout.LayoutParams(0,-2,1f))
@@ -132,6 +134,13 @@ class MainActivity:Activity() {
         buttons("☉ Sol" to {space.focus=0;space.panX=0.0;space.panY=0.0;space.zoom=1.0},
             "⊕ Tierra" to {space.focus=1;space.panX=0.0;space.panY=0.0;space.zoom=200.0},
             "35.000 km" to {space.earthRange(35000.0)})
+        buttons("☾ Luna" to {space.focus=3;space.zoom=180.0;space.panX=0.0;space.panY=0.0},
+            "Mercurio" to {space.focus=4;space.zoom=3.0}, "Venus" to {space.focus=5;space.zoom=3.0},
+            "Marte" to {space.focus=6;space.zoom=3.0})
+        buttons("Júpiter" to {space.focus=7;space.zoom=2.0},
+            "Saturno" to {space.focus=8;space.zoom=2.0},
+            "Urano" to {space.focus=9;space.zoom=2.0},
+            "Neptuno" to {space.focus=10;space.zoom=2.0})
         buttons("◎ Apophis" to {space.focus=2;space.panX=0.0;space.panY=0.0;space.zoom=500.0},
             "Recentrar" to {space.panX=0.0;space.panY=0.0})
         buttons("Zoom +" to {space.zoom=(space.zoom*2.0).coerceIn(.05,1.0e7)},
