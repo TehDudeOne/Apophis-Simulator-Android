@@ -65,6 +65,11 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private val asteroidTrail=ArrayDeque<V3>()
     private var lastTrailDay:java.time.LocalDate?=null
     private var lastTrailPosition:V3?=null
+    private fun moonOffset(date:java.time.LocalDate):V3 {
+        val days=date.toEpochDay().toDouble()-java.time.LocalDate.of(2000,1,1).toEpochDay()
+        val angle=2.0*PI*days/27.321661
+        return V3(0.00257*cos(angle),0.00257*sin(angle),0.00023*sin(angle))
+    }
     private fun shader(type:Int,code:String):Int {
         val id=GLES20.glCreateShader(type)
         GLES20.glShaderSource(id,code)
@@ -139,7 +144,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     override fun onDrawFrame(gl:GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val s=view.snapshot ?: return
-        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; else -> V3(0.0,0.0,0.0) }
+        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> s.earth + moonOffset(s.date); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
         val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
@@ -207,6 +212,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             }/149597870.7
             draw(pos,max(physical,3.0*pixelRadius),planet.color)
         }
+        draw(s.earth+moonOffset(s.date),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY)
         draw(s.asteroid,max(0.000001,3.5*pixelRadius),Color.rgb(255,80,95))
         GLES20.glDisableVertexAttribArray(vertices)
     }
