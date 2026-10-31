@@ -36,6 +36,7 @@ class MainActivity:Activity() {
     private var pairDate:LocalDate?=null
     private var horizonsKm:Double?=null
     private var horizonsDate:LocalDate?=null
+    private val vectorCache=mutableMapOf<LocalDate,Pair<V3,V3>>()
 
     private val frames=object:Runnable {
         override fun run() {
@@ -97,16 +98,19 @@ class MainActivity:Activity() {
             "+1 d" to {move(1)}, "2029" to {date=LocalDate.of(2029,4,13);phase=0.0;requestPair();requestHorizons()})[0]
         buttons("0,1 d/s" to {daysPerSecond=.1}, "1 d/s" to {daysPerSecond=1.0},
             "7 d/s" to {daysPerSecond=7.0})
-        buttons("☉ Sol" to {space.earthCentered=false;space.zoom=1.0},
-            "⊕ Tierra" to {space.earthCentered=true;space.zoom=200.0},
+        buttons("☉ Sol" to {space.focus=0;space.panX=0.0;space.panY=0.0;space.zoom=1.0},
+            "⊕ Tierra" to {space.focus=1;space.panX=0.0;space.panY=0.0;space.zoom=200.0},
             "35.000 km" to {space.earthRange(35000.0)})
-        buttons("Zoom +" to {space.zoom*=2.0},"Zoom -" to {space.zoom/=2.0},
+        buttons("◎ Apophis" to {space.focus=2;space.panX=0.0;space.panY=0.0;space.zoom=500.0},
+            "Recentrar" to {space.panX=0.0;space.panY=0.0})
+        buttons("Zoom +" to {space.zoom=(space.zoom*2.0).coerceIn(.05,1.0e7)},
+            "Zoom -" to {space.zoom=(space.zoom/2.0).coerceIn(.05,1.0e7)},
             "Actualizar JPL" to {refreshJpl()})
         val scroll=ScrollView(this)
         scroll.addView(controls)
         root.addView(scroll,LinearLayout.LayoutParams(-1,-2))
         root.addView(label(11f).apply {
-            text="Posiciones dibujadas: modelo orbital aproximado. Distancia JPL Horizons: dato independiente a las 00:00 UTC. No usar la escena para predecir impactos."
+            text="Tierra y Apophis: vectores JPL Horizons a 00:00 UTC, interpolados entre días. Otros planetas: órbitas ilustrativas. No usar para predecir impactos."
         })
         setContentView(root)
         repository.cached()?.let {elements=it}
@@ -139,14 +143,27 @@ class MainActivity:Activity() {
         loading=true
         executor.execute {
             val result=runCatching {
-                OrbitEngine.compute(selected,requested) to OrbitEngine.compute(selected,requested.plusDays(1))
+                fun accurate(day:LocalDate):Snapshot {
+                    val fallback=OrbitEngine.compute(selected,day)
+                    val vectors=vectorCache[day] ?: run {
+                        val asteroid=horizons.vector("99942",day)
+                        val earth=horizons.vector("399",day)
+                        (asteroid to earth).also { vectorCache[day]=it }
+                    }
+                    val planets=fallback.planets.map { (planet,pos) ->
+                        planet to if(planet.name=="Tierra") vectors.second else pos
+                    }
+                    return Snapshot(day,vectors.first,vectors.second,planets,
+                        (vectors.first-vectors.second).norm())
+                }
+                accurate(requested) to accurate(requested.plusDays(1))
             }
             runOnUiThread {
                 loading=false
                 if(isFinishing || isDestroyed) return@runOnUiThread
                 if(token!=version) {requestPair();return@runOnUiThread}
                 result.onSuccess {pair=it;pairDate=requested;showFrame()}
-                    .onFailure {status.text="Error orbital: ${it.message}"}
+                    .onFailure {status.text="Horizons sin vectores: ${it.message}. Escena no actualizada."}
             }
         }
     }
@@ -166,7 +183,7 @@ class MainActivity:Activity() {
         val approximate=(earth-asteroid).norm()
         space.snapshot=Snapshot(date,asteroid,earth,planets,approximate)
         val ref=if(horizonsDate==date) horizonsKm else null
-        val model=String.format(Locale.US,"Modelo aproximado: %,.0f km",approximate*149597870.7)
+        val model=String.format(Locale.US,"Distancia escena JPL: %,.0f km",approximate*149597870.7)
         val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
             else "JPL Horizons: pendiente / sin conexión"
         status.text="$reference\n$model"
