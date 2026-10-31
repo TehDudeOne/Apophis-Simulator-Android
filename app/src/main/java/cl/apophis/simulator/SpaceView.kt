@@ -15,7 +15,7 @@ import kotlin.math.*
 
 class SpaceView(context: Context): GLSurfaceView(context) {
     @Volatile var snapshot: Snapshot? = null
-    @Volatile var earthCentered = false
+    @Volatile var focus = 0 // 0=Sol, 1=Tierra, 2=Apophis
     @Volatile var zoom = 1.0
     @Volatile var panX = 0.0
     @Volatile var panY = 0.0
@@ -29,7 +29,7 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     private var x=0f
     private var y=0f
     init { setEGLContextClientVersion(2);setRenderer(renderer3d);renderMode=RENDERMODE_CONTINUOUSLY }
-    fun earthRange(km:Double) { earthCentered=true;panX=0.0;panY=0.0;zoom=(5.3*149597870.7/km).coerceIn(.05,1.0e7) }
+    fun earthRange(km:Double) { focus=1;panX=0.0;panY=0.0;zoom=(5.3*149597870.7/km).coerceIn(.05,1.0e7) }
     override fun onTouchEvent(event:MotionEvent):Boolean {
         pinch.onTouchEvent(event)
         when(event.actionMasked) {
@@ -136,8 +136,8 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     override fun onDrawFrame(gl:GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val s=view.snapshot ?: return
-        val center=if(view.earthCentered) s.earth else V3(0.0,0.0,0.0)
-        val halfHeight=5.3/view.zoom
+        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; else -> V3(0.0,0.0,0.0) }
+        val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
         GLES20.glUseProgram(program)
