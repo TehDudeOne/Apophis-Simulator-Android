@@ -54,8 +54,8 @@ class HorizonsDistance(private val context:Context) {
             check(connection.responseCode==200) { "Horizons HTTP ${connection.responseCode}" }
             val raw=connection.inputStream.bufferedReader().use { it.readText() }
             val result=JSONObject(raw).getString("result")
-            val start=result.indexOf("${')
-            val end=result.indexOf("${')
+            val start=result.indexOf("\$\$SOE")
+            val end=result.indexOf("\$\$EOE")
             check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
             val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
             // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
