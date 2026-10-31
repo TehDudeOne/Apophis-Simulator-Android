@@ -54,8 +54,156 @@ class HorizonsDistance(private val context:Context) {
             check(connection.responseCode==200) { "Horizons HTTP ${connection.responseCode}" }
             val raw=connection.inputStream.bufferedReader().use { it.readText() }
             val result=JSONObject(raw).getString("result")
-            val start=result.indexOf("$$SOE")
+            val start=result.indexOf("${')
+            val end=result.indexOf("${')
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}${')
             val end=result.indexOf("$$EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}SOE")
+            val end=result.indexOf("$$EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}${')
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}${')
+            val end=result.indexOf("$$EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}SOE")
+            val end=result.indexOf("$$EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}${')
+            val end=result.indexOf("${')
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}SOE")
+            val end=result.indexOf("$$EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}${')
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}SOE")
+            val end=result.indexOf("$$EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}EOE")
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}SOE")
+            val end=result.indexOf("${')
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}${')
+            check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
+            val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
+            // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
+            val fields=lines.first().split(",").map { it.trim() }
+            require(fields.size>=5) { "Formato de vectores inesperado" }
+            return V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+        } finally { connection.disconnect() }
+    }
+}
+}EOE")
             check(start>=0 && end>start) { "Horizons sin datos para la fecha" }
             val lines=result.substring(start+5,end).lines().filter { it.isNotBlank() }
             // CSV vector records: JD, calendar date, X, Y, Z, VX, VY, VZ...
