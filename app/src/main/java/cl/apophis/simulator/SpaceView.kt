@@ -62,6 +62,9 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private val tmp=FloatArray(16)
     private val mvp=FloatArray(16)
     private var aspect=1f
+    private val asteroidTrail=ArrayDeque<V3>()
+    private var lastTrailDay:java.time.LocalDate?=null
+    private var lastTrailPosition:V3?=null
     private fun shader(type:Int,code:String):Int {
         val id=GLES20.glCreateShader(type)
         GLES20.glShaderSource(id,code)
@@ -143,6 +146,42 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         GLES20.glUseProgram(program)
         GLES20.glEnableVertexAttribArray(vertices)
         GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,vertexData)
+        fun line(points:List<V3>,color:Int) {
+            if(points.size<2) return
+            val coords=FloatArray(points.size*3)
+            points.forEachIndexed {i,p ->
+                val v=p-center
+                coords[i*3]=((v.x-v.y)*.70710678+view.panX*halfHeight).toFloat()
+                coords[i*3+1]=((v.x+v.y)*.38-v.z*.85+view.panY*halfHeight).toFloat()
+                coords[i*3+2]=0f
+            }
+            val buffer=ByteBuffer.allocateDirect(coords.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            buffer.put(coords).position(0)
+            Matrix.multiplyMM(mvp,0,projection,0,camera,0)
+            GLES20.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
+            GLES20.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
+            GLES20.glUniform1f(lightHandle,1f)
+            GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,buffer)
+            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP,0,points.size)
+            GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,vertexData)
+        }
+        // Illustrative heliocentric orbital rings, not JPL ephemerides.
+        for((planet,pos) in s.planets) {
+            val radius=sqrt(pos.x*pos.x+pos.y*pos.y)
+            if(radius>0.0) line((0..128).map {i ->
+                val angle=2.0*PI*i/128.0
+                V3(radius*cos(angle),radius*sin(angle),0.0)
+            },Color.rgb(48,75,105))
+        }
+        val previous=lastTrailPosition
+        if(lastTrailDay!=s.date || previous==null || (s.asteroid-previous).norm()>0.0000002) {
+            if(lastTrailDay!=null && kotlin.math.abs(java.time.temporal.ChronoUnit.DAYS.between(lastTrailDay,s.date))>2) asteroidTrail.clear()
+            asteroidTrail.addLast(s.asteroid)
+            while(asteroidTrail.size>1800) asteroidTrail.removeFirst()
+            lastTrailDay=s.date
+            lastTrailPosition=s.asteroid
+        }
+        line(asteroidTrail.toList(),Color.rgb(255,115,65))
         fun draw(p:V3,r:Double,color:Int,emissive:Boolean=false) {
             val v=p-center
             val sx=(v.x-v.y)*.70710678+view.panX*halfHeight
