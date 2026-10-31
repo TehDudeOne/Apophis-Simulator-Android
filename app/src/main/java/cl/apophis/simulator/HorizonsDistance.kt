@@ -33,7 +33,7 @@ class HorizonsDistance(context: Context) {
         return distance
     }
 
-    private fun vector(command: String, date: LocalDate): V3 {
+    fun vector(command: String, date: LocalDate): V3 {
         val params = linkedMapOf(
             "format" to "json",
             "COMMAND" to "'$command'",
