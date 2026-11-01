@@ -30,8 +30,6 @@ class MainActivity:Activity() {
     private lateinit var dateLabel:TextView
     private lateinit var playButton:Button
     private lateinit var dateInput:EditText
-    private var cachedPreviewDate:LocalDate?=null
-    private var cachedPreview:Snapshot?=null
     private val repository by lazy { JplRepository(this) }
     private val horizons by lazy { HorizonsDistance(this) }
     private val executor=Executors.newSingleThreadExecutor()
@@ -205,8 +203,6 @@ class MainActivity:Activity() {
         if(playing) togglePlay()
         date=selected
         phase=0.0
-        cachedPreviewDate=null
-        cachedPreview=null
         (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
             ?.hideSoftInputFromWindow(dateInput.windowToken,0)
         dateInput.clearFocus()
@@ -308,15 +304,17 @@ class MainActivity:Activity() {
         val liveFrench=french.sample(date,t)
         val p=if(pairDate==date) pair else null
         if(p==null && liveFrench==null) return
-        if(p==null && liveFrench!=null) {
-            if(cachedPreviewDate!=date || cachedPreview==null) {
-                cachedPreview=OrbitEngine.compute(elements,date)
-                cachedPreviewDate=date
-            }
-            val fallback=cachedPreview ?: return
-            val earth=fallback.earth
-            space.snapshot=Snapshot(date,earth+liveFrench.position,earth,fallback.planets,liveFrench.position.norm())
-            status.text=String.format(Locale.US,"IMCCE Miriade · Hermite: %,.1f km",liveFrench.position.norm()*149597870.7)
+        space.dayFraction=t
+        val livePlanets=OrbitEngine.planetPositions(date,t)
+        if(liveFrench!=null) {
+            // A single continuous planetary clock for all 432 Miriade samples.
+            // The Miriade asteroid vector is geocentric; translate it by the
+            // same Earth position used for the scene and camera.
+            val earth=livePlanets.first { it.first.name=="Tierra" }.second
+            space.snapshot=Snapshot(date,earth+liveFrench.position,earth,livePlanets,liveFrench.position.norm())
+            val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
+            status.text=String.format(Locale.US,"IMCCE Miriade · Hermite 10 min: %,.1f km",liveFrench.position.norm()*149597870.7)+
+                playback+"\nReferencia: geocéntrica astrométrica J2000"
             return
         }
         val pairNow=p ?: return
@@ -328,23 +326,20 @@ class MainActivity:Activity() {
         val fraction=hour-index
         val earthAccurate=if(samples!=null && samples.size==25) interpolate(samples[index].second,samples[index+1].second,fraction) else earth
         val asteroid=if(samples!=null && samples.size==25) interpolate(samples[index].first,samples[index+1].first,fraction) else interpolate(first.asteroid,second.asteroid,t)
-        val planets=first.planets.mapIndexed {index,item ->
-            item.first to interpolate(item.second,second.planets[index].second,t)
+        val planets=livePlanets.map { (planet,position) ->
+            // Use the same Earth vector as the asteroid distance computation.
+            planet to if(planet.name=="Tierra") earthAccurate else position
         }
-        val frenchState=liveFrench
         val sceneEarth=earthAccurate
-        val sceneAsteroid=if(frenchState!=null) sceneEarth+frenchState.position else asteroid
-        val approximate=if(frenchState!=null) frenchState.position.norm() else (sceneEarth-sceneAsteroid).norm()
+        val sceneAsteroid=asteroid
+        val approximate=(sceneEarth-sceneAsteroid).norm()
         space.snapshot=Snapshot(date,sceneAsteroid,sceneEarth,planets,approximate)
         val ref=if(horizonsDate==date) horizonsKm else null
-        val model=if(frenchState!=null)
-            String.format(Locale.US,"IMCCE Miriade · Hermite 10 min: %,.1f km",approximate*149597870.7)
-            else String.format(Locale.US,"Distancia JPL interpolada: %,.0f km",approximate*149597870.7)
+        val model=String.format(Locale.US,"Distancia orbital: %,.0f km",approximate*149597870.7)
         val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
             else "JPL Horizons: pendiente / sin conexión"
         val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
-        status.text=if(frenchState!=null) "$model$playback\nReferencia: geocéntrica astrométrica J2000"
-            else "$reference\n$model$playback"
+        status.text="$reference\n$model$playback"
     }
     private fun requestHorizons() {
         val requested=date

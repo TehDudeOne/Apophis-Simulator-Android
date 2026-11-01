@@ -38,6 +38,16 @@ object OrbitEngine {
         val angle = p.phase + 2.0 * PI * (jd - J2000) / p.period
         return V3(p.radius * cos(angle), p.radius * sin(angle), 0.0)
     }
+    /**
+     * Continuous planetary positions at a fractional UTC day.
+     * This remains a simplified circular-orbit visualization, not JPL planetary vectors.
+     */
+    fun planetPositions(date: LocalDate, phase: Double): List<Pair<Planet,V3>> {
+        require(phase.isFinite() && phase >= 0.0 && phase <= 1.0)
+        val jd=julian(date)+phase
+        return planets.map { it to planetAt(it,jd) }
+    }
+
     private fun fromElements(el: Elements): Pair<V3,V3> {
         require(el.a > 0 && el.e >= 0 && el.e < 1)
         val m = el.mean * RAD
