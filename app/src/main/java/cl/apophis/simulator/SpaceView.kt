@@ -19,6 +19,7 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     @Volatile var snapshot: Snapshot? = null
     @Volatile var dayFraction = 0.0
     @Volatile var moonPosition:V3?=null
+    @Volatile var pastGeocentricTrail:List<V3> = emptyList()
     @Volatile var predictedGeocentricTrail:List<V3> = emptyList()
     @Volatile var focus = 0 // 0=Sol, 1=Tierra, 2=Apophis
     @Volatile var zoom = 1.0
@@ -251,7 +252,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         GLES30.glUniform1i(textureHandle,0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,sphereVbo)
         GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
-        fun line(points:List<V3>,color:Int) {
+        fun line(points:List<V3>,color:Int,dashed:Boolean=false) {
             if(points.size<2) return
             val coords=FloatArray(points.size*3)
             points.forEachIndexed {i,p ->
@@ -270,7 +271,15 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             GLES30.glUniform1f(lightHandle,1f)
             GLES30.glUniform1f(surfaceHandle,0f)
             GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
-            GLES30.glDrawArrays(GLES30.GL_LINE_STRIP,0,points.size)
+            if(dashed) {
+                var index=0
+                while(index+1<points.size) {
+                    GLES30.glDrawArrays(GLES30.GL_LINES,index,2)
+                    index+=2
+                }
+            } else {
+                GLES30.glDrawArrays(GLES30.GL_LINE_STRIP,0,points.size)
+            }
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,sphereVbo)
             GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
         }
@@ -286,10 +295,10 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         // IMCCE Miriade series. Earth is held at the current UTC instant,
         // explicitly representing an Earth-centered view (not a heliocentric orbit).
         // Never connect historical rendered positions across ephemeris updates.
-        val referenceTrail=view.predictedGeocentricTrail
-        if(referenceTrail.size>=2) {
-            line(referenceTrail.map {s.earth+it},Color.rgb(255,115,65))
-        }
+        val pastTrail=view.pastGeocentricTrail
+        if(pastTrail.size>=2) line(pastTrail.map {s.earth+it},Color.rgb(255,140,39))
+        val futureTrail=view.predictedGeocentricTrail
+        if(futureTrail.size>=2) line(futureTrail.map {s.earth+it},Color.rgb(50,200,255),dashed=true)
         fun draw(p:V3,r:Double,color:Int,emissive:Boolean=false,surface:Float=0f,body:String?=null) {
             val v=p-center
             val sx=v.x+view.panX*halfHeight
