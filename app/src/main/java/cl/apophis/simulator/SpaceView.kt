@@ -21,6 +21,12 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     @Volatile var zoom = 1.0
     @Volatile var panX = 0.0
     @Volatile var panY = 0.0
+    @Volatile var yaw = 0.0
+    @Volatile var pitch = 0.0
+    @Volatile var roll = 0.0
+    @Volatile var dragToPan = false
+    fun resetOrientation() { yaw=0.0; pitch=0.0; roll=0.0 }
+    fun rotateRoll(degrees:Double) { roll=(roll+degrees)%360.0 }
     private val renderer3d = SpaceRenderer(this)
     private val pinch = ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){
         override fun onScale(d:ScaleGestureDetector):Boolean {
@@ -30,20 +36,52 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     })
     private var x=0f
     private var y=0f
+    private var activePointers=0
+    private var gestureX=0f
+    private var gestureY=0f
     init { setEGLContextClientVersion(3);setPreserveEGLContextOnPause(true);setRenderer(renderer3d);renderMode=RENDERMODE_CONTINUOUSLY }
     fun earthRange(km:Double) { focus=1;panX=0.0;panY=0.0;zoom=(5.3*149597870.7/km).coerceIn(.05,1.0e7) }
     override fun onTouchEvent(event:MotionEvent):Boolean {
         pinch.onTouchEvent(event)
         when(event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {x=event.x;y=event.y;return true}
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                activePointers=event.pointerCount
+                gestureX=event.x
+                gestureY=event.y
+                x=event.x; y=event.y
+                return true
+            }
             MotionEvent.ACTION_MOVE -> {
-                if(event.pointerCount==1 && !pinch.isInProgress) {
-                    panX = (panX+(event.x-x)/width.coerceAtLeast(1).toDouble()*2.0).coerceIn(-2.0,2.0)
-                    panY = (panY-(event.y-y)/height.coerceAtLeast(1).toDouble()*2.0).coerceIn(-2.0,2.0)
+                val px=event.x
+                val py=event.y
+                val dx=(px-x)/width.coerceAtLeast(1).toDouble()
+                val dy=(py-y)/height.coerceAtLeast(1).toDouble()
+                if(event.pointerCount>=2 && !pinch.isInProgress) {
+                    panX=(panX+dx*2.0).coerceIn(-2.0,2.0)
+                    panY=(panY-dy*2.0).coerceIn(-2.0,2.0)
+                } else if(event.pointerCount==1 && !pinch.isInProgress) {
+                    if(dragToPan) {
+                        panX=(panX+dx*2.0).coerceIn(-2.0,2.0)
+                        panY=(panY-dy*2.0).coerceIn(-2.0,2.0)
+                    } else {
+                        yaw=(yaw+dx*240.0)%360.0
+                        pitch=(pitch+dy*240.0)%360.0
+                    }
                 }
-                x=event.x;y=event.y;return true
+                x=px; y=py
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                val remaining=if(event.actionIndex==0) 1 else 0
+                if(remaining<event.pointerCount) {
+                    x=event.getX(remaining)
+                    y=event.getY(remaining)
+                }
+                activePointers=event.pointerCount-1
+                return true
             }
             MotionEvent.ACTION_UP -> {performClick();return true}
+            MotionEvent.ACTION_CANCEL -> return true
         }
         return true
     }
@@ -218,6 +256,9 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         }
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
+        Matrix.rotateM(camera,0,view.roll.toFloat(),0f,0f,1f)
+        Matrix.rotateM(camera,0,view.pitch.toFloat(),1f,0f,0f)
+        Matrix.rotateM(camera,0,view.yaw.toFloat(),0f,0f,1f)
         GLES30.glUseProgram(program)
         GLES30.glBindVertexArray(vao)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -230,9 +271,9 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             val coords=FloatArray(points.size*3)
             points.forEachIndexed {i,p ->
                 val v=p-center
-                coords[i*3]=((v.x-v.y)*.70710678+view.panX*halfHeight).toFloat()
-                coords[i*3+1]=((v.x+v.y)*.38-v.z*.85+view.panY*halfHeight).toFloat()
-                coords[i*3+2]=0f
+                coords[i*3]=(v.x+view.panX*halfHeight).toFloat()
+                coords[i*3+1]=(v.y+view.panY*halfHeight).toFloat()
+                coords[i*3+2]=v.z.toFloat()
             }
             val buffer=ByteBuffer.allocateDirect(coords.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer()
             buffer.put(coords).position(0)
@@ -268,11 +309,12 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         line(asteroidTrail.toList(),Color.rgb(255,115,65))
         fun draw(p:V3,r:Double,color:Int,emissive:Boolean=false,surface:Float=0f,body:String?=null) {
             val v=p-center
-            val sx=(v.x-v.y)*.70710678+view.panX*halfHeight
-            val sy=(v.x+v.y)*.38-v.z*.85+view.panY*halfHeight
-            if(abs(sx)>halfHeight*aspect*2 || abs(sy)>halfHeight*2) return
+            val sx=v.x+view.panX*halfHeight
+            val sy=v.y+view.panY*halfHeight
+            val sz=v.z
+            if(max(abs(sx),max(abs(sy),abs(sz)))>halfHeight*aspect*1000.0) return
             Matrix.setIdentityM(model,0)
-            Matrix.translateM(model,0,sx.toFloat(),sy.toFloat(),0f)
+            Matrix.translateM(model,0,sx.toFloat(),sy.toFloat(),sz.toFloat())
             if(body!=null) {
                 val days=java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.of(2000,1,1),s.date).toFloat()
                 Matrix.rotateM(model,0,(days*360.9856f)%360f,0f,0f,1f)

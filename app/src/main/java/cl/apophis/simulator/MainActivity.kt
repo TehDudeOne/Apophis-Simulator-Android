@@ -9,6 +9,10 @@ import android.graphics.Color
 import android.view.Gravity
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -25,6 +29,9 @@ class MainActivity:Activity() {
     private lateinit var status:TextView
     private lateinit var dateLabel:TextView
     private lateinit var playButton:Button
+    private lateinit var dateInput:EditText
+    private var cachedPreviewDate:LocalDate?=null
+    private var cachedPreview:Snapshot?=null
     private val repository by lazy { JplRepository(this) }
     private val horizons by lazy { HorizonsDistance(this) }
     private val executor=Executors.newSingleThreadExecutor()
@@ -96,8 +103,22 @@ class MainActivity:Activity() {
         root.addView(status)
         space=SpaceView(this)
         root.addView(space,LinearLayout.LayoutParams(-1,0,1.6f))
-        dateLabel=label(17f)
+        dateLabel=label(15f)
         root.addView(dateLabel)
+        val dateRow=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
+        dateInput=EditText(this).apply {
+            setSingleLine(true)
+            setText(date.toString())
+            hint="AAAA-MM-DD"
+            textSize=16f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.LTGRAY)
+            inputType=android.text.InputType.TYPE_CLASS_DATETIME or android.text.InputType.TYPE_DATETIME_VARIATION_DATE
+        }
+        dateRow.addView(dateInput,LinearLayout.LayoutParams(0,-2,1f))
+        val goDate=Button(this).apply {text="Ir a fecha";isAllCaps=false;setOnClickListener {applyDateInput()} }
+        dateRow.addView(goDate)
+        root.addView(dateRow)
         val controls=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
         fun buttons(vararg actions:Pair<String,()->Unit>):List<Button> {
             val row=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
@@ -148,6 +169,10 @@ class MainActivity:Activity() {
             "Neptuno" to {space.focus=10;space.zoom=2.0})
         buttons("◎ Apophis" to {space.focus=2;space.panX=0.0;space.panY=0.0;space.zoom=500.0},
             "Recentrar" to {space.panX=0.0;space.panY=0.0})
+        buttons("↺ Vista" to {space.resetOrientation()},
+            "↶ Roll" to {space.rotateRoll(-15.0)},
+            "Roll ↷" to {space.rotateRoll(15.0)},
+            "Pan/Órbita" to {space.dragToPan=!space.dragToPan;Toast.makeText(this,if(space.dragToPan) "Arrastre: desplazar" else "Arrastre: rotar",Toast.LENGTH_SHORT).show()})
         buttons("Zoom +" to {space.zoom=(space.zoom*2.0).coerceIn(.05,1.0e7)},
             "Zoom -" to {space.zoom=(space.zoom/2.0).coerceIn(.05,1.0e7)},
             "Actualizar JPL" to {refreshJpl()})
@@ -163,8 +188,31 @@ class MainActivity:Activity() {
             space.zoom=savedInstanceState.getDouble("zoom",1.0)
             space.panX=savedInstanceState.getDouble("panX",0.0)
             space.panY=savedInstanceState.getDouble("panY",0.0)
+            space.yaw=savedInstanceState.getDouble("yaw",0.0)
+            space.pitch=savedInstanceState.getDouble("pitch",0.0)
+            space.roll=savedInstanceState.getDouble("roll",0.0)
+            space.dragToPan=savedInstanceState.getBoolean("dragToPan",false)
             if(savedInstanceState.getBoolean("playing",false)) togglePlay()
         }
+    }
+    private fun applyDateInput() {
+        val value=dateInput.text.toString().trim()
+        val selected=runCatching {LocalDate.parse(value)}.getOrNull()
+        if(selected==null || selected.year !in 1900..2100) {
+            dateInput.error="Fecha válida: AAAA-MM-DD, entre 1900 y 2100"
+            return
+        }
+        if(playing) togglePlay()
+        date=selected
+        phase=0.0
+        cachedPreviewDate=null
+        cachedPreview=null
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(dateInput.windowToken,0)
+        dateInput.clearFocus()
+        requestPair()
+        requestHorizons()
+        showFrame()
     }
     private fun setSpeed(speed:Double) {
         daysPerSecond=speed
@@ -203,6 +251,7 @@ class MainActivity:Activity() {
         pairDate=null
         hourly=null
         dateLabel.text=requested.toString()
+        if(::dateInput.isInitialized && !dateInput.hasFocus()) dateInput.setText(requested.toString())
         if(loading) { pendingRequest=true; return }
         loading=true
         executor.execute {
@@ -221,11 +270,11 @@ class MainActivity:Activity() {
                         return Snapshot(day,earth+frenchState.position,earth,fallback.planets,frenchState.position.norm())
                     }
                     val fallback=OrbitEngine.compute(selected,day)
-                    val vectors=vectorCache[day] ?: run {
+                    val vectors=vectorCache[day] ?: runCatching {
                         val asteroid=horizons.vector("99942",day)
                         val earth=horizons.vector("399",day)
                         (asteroid to earth).also { vectorCache[day]=it }
-                    }
+                    }.getOrNull() ?: return fallback
                     val planets=fallback.planets.map { (planet,pos) ->
                         planet to if(planet.name=="Tierra") vectors.second else pos
                     }
@@ -260,7 +309,11 @@ class MainActivity:Activity() {
         val p=if(pairDate==date) pair else null
         if(p==null && liveFrench==null) return
         if(p==null && liveFrench!=null) {
-            val fallback=OrbitEngine.compute(elements,date)
+            if(cachedPreviewDate!=date || cachedPreview==null) {
+                cachedPreview=OrbitEngine.compute(elements,date)
+                cachedPreviewDate=date
+            }
+            val fallback=cachedPreview ?: return
             val earth=fallback.earth
             space.snapshot=Snapshot(date,earth+liveFrench.position,earth,fallback.planets,liveFrench.position.norm())
             status.text=String.format(Locale.US,"IMCCE Miriade · Hermite: %,.1f km",liveFrench.position.norm()*149597870.7)
@@ -324,6 +377,10 @@ class MainActivity:Activity() {
         outState.putString("date",date.toString())
         outState.putDouble("phase",phase)
         outState.putDouble("speed",daysPerSecond)
+        outState.putDouble("yaw",space.yaw)
+        outState.putDouble("pitch",space.pitch)
+        outState.putDouble("roll",space.roll)
+        outState.putBoolean("dragToPan",space.dragToPan)
         outState.putBoolean("playing",playing)
         if(::space.isInitialized) {
             outState.putInt("focus",space.focus)
