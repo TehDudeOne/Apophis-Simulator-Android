@@ -207,6 +207,12 @@ class MainActivity:Activity() {
         executor.execute {
             val result=runCatching {
                 fun accurate(day:LocalDate):Snapshot {
+                    // Preserve offline playback at the end of the French data window.
+                    // The following midnight is outside the 432-point series.
+                    if (french.sample(requested,0.0)!=null &&
+                        french.sample(day,0.0)==null) {
+                        return OrbitEngine.compute(selected,day)
+                    }
                     val frenchState=french.sample(day,0.0)
                     if (frenchState!=null) {
                         val fallback=OrbitEngine.compute(selected,day)
