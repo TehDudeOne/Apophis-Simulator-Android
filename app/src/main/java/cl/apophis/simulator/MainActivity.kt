@@ -56,6 +56,26 @@ class MainActivity:Activity() {
     private val bodyPending=mutableSetOf<LocalDate>()
     private val bodyAttempted=mutableSetOf<LocalDate>()
     private var bodyStatus="Efemérides: buscando caché interno"
+    private var trailDate:LocalDate?=null
+    private var trailPhase=Double.NaN
+    private fun updateReferenceTrail(day:LocalDate,fraction:Double) {
+        // A centered 24-hour window, sampled every 10 minutes. This curve is
+        // rebuilt when time changes and never depends on previous render frames.
+        if(trailDate==day && kotlin.math.abs(trailPhase-fraction)<(1.0/144.0)) return
+        val points=ArrayList<V3>(145)
+        val center=day.toEpochDay().toDouble()+fraction
+        for(i in -72..72) {
+            val instant=center+i/144.0
+            val epochDay=kotlin.math.floor(instant).toLong()
+            val phaseAt=instant-epochDay
+            val state=french.sample(LocalDate.ofEpochDay(epochDay),phaseAt)
+            if(state!=null) points.add(state.position)
+        }
+        space.predictedGeocentricTrail=if(points.size>=2) points else emptyList()
+        trailDate=day
+        trailPhase=fraction
+    }
+
     private fun requestBodies(day:LocalDate,force:Boolean=false) {
         if(bodyPending.contains(day) || (!force && bodyAttempted.contains(day))) return
         bodyAttempted.add(day)
@@ -350,6 +370,7 @@ class MainActivity:Activity() {
         }
         space.moonPosition=ephemeris?.sample("Luna",t)
         if(liveFrench!=null) {
+            updateReferenceTrail(date,t)
             // Miriade geocentric J2000 state rotated to the ecliptic frame; Earth uses JPL secular Kepler elements.
             // The Miriade asteroid vector is geocentric; translate it by the
             // same Earth position used for the scene and camera.
@@ -357,9 +378,11 @@ class MainActivity:Activity() {
             space.snapshot=Snapshot(date,earth+liveFrench.position,earth,livePlanets,liveFrench.position.norm())
             val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
             status.text=String.format(Locale.US,"Apophis IMCCE Miriade (incluido) · %,.1f km",liveFrench.position.norm()*149597870.7)+
-                playback+"\n"+bodyStatus
+                playback+"\n"+bodyStatus+"\nTrayectoria: IMCCE, geocéntrica, ventana ±12 h"
             return
         }
+        space.predictedGeocentricTrail=emptyList()
+        trailDate=null
         val pairNow=p ?: return
         val first=pairNow.first;val second=pairNow.second
         val earth=interpolate(first.earth,second.earth,t)

@@ -19,6 +19,7 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     @Volatile var snapshot: Snapshot? = null
     @Volatile var dayFraction = 0.0
     @Volatile var moonPosition:V3?=null
+    @Volatile var predictedGeocentricTrail:List<V3> = emptyList()
     @Volatile var focus = 0 // 0=Sol, 1=Tierra, 2=Apophis
     @Volatile var zoom = 1.0
     @Volatile var panX = 0.0
@@ -111,11 +112,6 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private val tmp=FloatArray(16)
     private val mvp=FloatArray(16)
     private var aspect=1f
-    private val asteroidTrail=ArrayDeque<V3>()
-    private var trailEpoch=0L
-    private var lastFocus=-1
-    private var lastTrailDay:java.time.LocalDate?=null
-    private var lastTrailPosition:V3?=null
     private fun shader(type:Int,code:String):Int {
         val id=GLES30.glCreateShader(type)
         GLES30.glShaderSource(id,code)
@@ -127,9 +123,6 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     }
     override fun onSurfaceCreated(gl:GL10?, config:EGLConfig?) {
         bodyTextures.clear()
-        asteroidTrail.clear()
-        lastTrailDay=null
-        lastTrailPosition=null
         GLES30.glClearColor(.012f,.025f,.065f,1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glEnable(GLES30.GL_CULL_FACE)
@@ -246,11 +239,6 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         val s=view.snapshot ?: return
         val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> (view.moonPosition ?: (s.earth + OrbitEngine.moonOffset(s.date,view.dayFraction))); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
         val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
-        if(view.focus!=lastFocus) {
-            asteroidTrail.clear()
-            lastTrailPosition=null
-            lastFocus=view.focus
-        }
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
         Matrix.rotateM(camera,0,view.roll.toFloat(),0f,0f,1f)
@@ -294,16 +282,14 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
                 V3(radius*cos(angle),radius*sin(angle),0.0)
             },Color.rgb(48,75,105))
         }
-        val previous=lastTrailPosition
-        if(lastTrailDay!=s.date || previous==null || (s.asteroid-previous).norm()>0.0000002) {
-            if(lastTrailDay!=null && kotlin.math.abs(java.time.temporal.ChronoUnit.DAYS.between(lastTrailDay,s.date))>2) asteroidTrail.clear()
-            if(previous!=null && (s.asteroid-previous).norm()>0.03) asteroidTrail.clear()
-            asteroidTrail.addLast(s.asteroid)
-            while(asteroidTrail.size>1800) asteroidTrail.removeFirst()
-            lastTrailDay=s.date
-            lastTrailPosition=s.asteroid
+        // Geocentric reference curve: every sample comes from the same
+        // IMCCE Miriade series. Earth is held at the current UTC instant,
+        // explicitly representing an Earth-centered view (not a heliocentric orbit).
+        // Never connect historical rendered positions across ephemeris updates.
+        val referenceTrail=view.predictedGeocentricTrail
+        if(referenceTrail.size>=2) {
+            line(referenceTrail.map {s.earth+it},Color.rgb(255,115,65))
         }
-        line(asteroidTrail.toList(),Color.rgb(255,115,65))
         fun draw(p:V3,r:Double,color:Int,emissive:Boolean=false,surface:Float=0f,body:String?=null) {
             val v=p-center
             val sx=v.x+view.panX*halfHeight
