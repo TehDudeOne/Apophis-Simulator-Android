@@ -104,7 +104,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             uniform float uLight;
             uniform float uSurface;
             uniform sampler2D uTexture;
-            varying vec3 vNormal;
+            in vec3 vNormal;
             out vec4 fragColor;
             void main() {
                 float diffuse=max(dot(normalize(vNormal),normalize(vec3(-0.5,0.8,1.0))),0.0);
