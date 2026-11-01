@@ -57,7 +57,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private var lightHandle=0
     private var surfaceHandle=0
     private var textureHandle=0
-    private var earthTexture=0
+    private val bodyTextures=mutableMapOf<String,Int>()
     private var indexCount=0
     private lateinit var vertexData:java.nio.FloatBuffer
     private lateinit var indices:java.nio.ShortBuffer
@@ -111,13 +111,9 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
                 float detail=sin(longitude*17.0+sin(latitude*11.0))*cos(latitude*29.0);
                 float bands=sin(latitude*42.0+detail*0.8);
                 vec3 base=uColor.rgb;
-                if(uSurface>0.5 && uSurface<1.5) {
+                if(uSurface>0.5) {
                     vec2 uv=vec2(fract(0.5+longitude/6.2831853),0.5-latitude/3.14159265);
                     base=texture2D(uTexture,uv).rgb;
-                } else if(uSurface>1.5 && uSurface<3.5) {
-                    base*=0.75+0.25*bands;
-                } else if(uSurface>3.5) {
-                    base*=0.82+0.18*detail;
                 }
                 gl_FragColor=vec4(base*illumination,uColor.a);
             }
@@ -135,17 +131,23 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         lightHandle=GLES20.glGetUniformLocation(program,"uLight")
         surfaceHandle=GLES20.glGetUniformLocation(program,"uSurface")
         textureHandle=GLES20.glGetUniformLocation(program,"uTexture")
-        val idsTexture=IntArray(1)
-        GLES20.glGenTextures(1,idsTexture,0)
-        earthTexture=idsTexture[0]
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,earthTexture)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_REPEAT)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE)
-        val bitmap=view.context.assets.open("earth_map.png").use { BitmapFactory.decodeStream(it) }
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0)
-        bitmap.recycle()
+        val bodies=listOf("Tierra","Mercurio","Venus","Luna","Marte","Júpiter","Saturno","Urano","Neptuno")
+        for (name in bodies) {
+            val ids=IntArray(1)
+            GLES20.glGenTextures(1,ids,0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,ids[0])
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_REPEAT)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE)
+            val bitmap=if(name=="Tierra") {
+                view.context.assets.open("earth_map.png").use { BitmapFactory.decodeStream(it) }
+            } else PlanetTextures.create(name)
+            requireNotNull(bitmap) { "No se pudo crear la textura de $name" }
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0)
+            bitmap.recycle()
+            bodyTextures[name]=ids[0]
+        }
         val positions=ArrayList<Float>()
         val ids=ArrayList<Short>()
         val lat=20;val lon=32
@@ -183,7 +185,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
         GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,earthTexture)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,bodyTextures.getValue("Tierra"))
         GLES20.glUniform1i(textureHandle,0)
         GLES20.glEnableVertexAttribArray(vertices)
         GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,vertexData)
@@ -224,14 +226,14 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             lastTrailPosition=s.asteroid
         }
         line(asteroidTrail.toList(),Color.rgb(255,115,65))
-        fun draw(p:V3,r:Double,color:Int,emissive:Boolean=false,surface:Float=0f) {
+        fun draw(p:V3,r:Double,color:Int,emissive:Boolean=false,surface:Float=0f,body:String?=null) {
             val v=p-center
             val sx=(v.x-v.y)*.70710678+view.panX*halfHeight
             val sy=(v.x+v.y)*.38-v.z*.85+view.panY*halfHeight
             if(abs(sx)>halfHeight*aspect*2 || abs(sy)>halfHeight*2) return
             Matrix.setIdentityM(model,0)
             Matrix.translateM(model,0,sx.toFloat(),sy.toFloat(),0f)
-            if(surface==1f) {
+            if(body!=null) {
                 val days=java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.of(2000,1,1),s.date).toFloat()
                 Matrix.rotateM(model,0,(days*360.9856f)%360f,0f,0f,1f)
                 Matrix.rotateM(model,0,23.44f,1f,0f,0f)
@@ -242,7 +244,8 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             GLES20.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
             GLES20.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
             GLES20.glUniform1f(lightHandle,if(emissive) 1f else 0f)
-            GLES20.glUniform1f(surfaceHandle,surface)
+            GLES20.glUniform1f(surfaceHandle,if(body!=null) 1f else 0f)
+            if(body!=null) GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,bodyTextures.getValue(body))
             indices.position(0)
             GLES20.glDrawElements(GLES20.GL_TRIANGLES,indexCount,GLES20.GL_UNSIGNED_SHORT,indices)
         }
@@ -253,10 +256,9 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
                 "Mercurio"->2439.7;"Venus"->6051.8;"Tierra"->6371.0;"Marte"->3389.5
                 "Júpiter"->69911.0;"Saturno"->58232.0;"Urano"->25362.0;else->24622.0
             }/149597870.7
-            val surface=when(planet.name) {"Tierra"->1f;"Júpiter"->2f;"Saturno"->3f;else->4f}
-            draw(pos,max(physical,3.0*pixelRadius),planet.color,false,surface)
+            draw(pos,max(physical,3.0*pixelRadius),planet.color,false,1f,planet.name)
         }
-        draw(s.earth+moonOffset(s.date),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY)
+        draw(s.earth+moonOffset(s.date),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
         draw(s.asteroid,max(0.000001,3.5*pixelRadius),Color.rgb(255,80,95))
         GLES20.glDisableVertexAttribArray(vertices)
     }
