@@ -41,6 +41,8 @@ class MainActivity:Activity() {
     private var horizonsKm:Double?=null
     private var horizonsDate:LocalDate?=null
     private val vectorCache=mutableMapOf<LocalDate,Pair<V3,V3>>()
+    private val hourlyCache=mutableMapOf<LocalDate,List<Pair<V3,V3>>>()
+    private var hourly:List<Pair<V3,V3>>?=null
 
     private val frames=object:Runnable {
         override fun run() {
@@ -87,11 +89,11 @@ class MainActivity:Activity() {
             gravity=Gravity.CENTER
             setPadding(2,3,2,3)
         }
-        root.addView(label(20f).apply {text="APOPHIS SIMULATOR"})
+        root.addView(label(15f).apply {text="APOPHIS SIMULATOR"})
         status=label(12f)
         root.addView(status)
         space=SpaceView(this)
-        root.addView(space,LinearLayout.LayoutParams(-1,0,1f))
+        root.addView(space,LinearLayout.LayoutParams(-1,0,1.6f))
         dateLabel=label(17f)
         root.addView(dateLabel)
         val controls=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
@@ -101,9 +103,10 @@ class MainActivity:Activity() {
                 Button(this).apply {
                     text=title
                     textSize=10f
-                    minHeight=0
-                    minimumHeight=0
-                    setPadding(0,0,0,0)
+                    isAllCaps=false
+                    minHeight=(48*resources.displayMetrics.density).toInt()
+                    minimumHeight=(48*resources.displayMetrics.density).toInt()
+                    setPadding(2,2,2,2)
                     setOnClickListener {action()}
                     row.addView(this,LinearLayout.LayoutParams(0,-2,1f))
                 }
@@ -146,12 +149,9 @@ class MainActivity:Activity() {
         buttons("Zoom +" to {space.zoom=(space.zoom*2.0).coerceIn(.05,1.0e7)},
             "Zoom -" to {space.zoom=(space.zoom/2.0).coerceIn(.05,1.0e7)},
             "Actualizar JPL" to {refreshJpl()})
-        val scroll=ScrollView(this)
+        val scroll=ScrollView(this).apply { isFillViewport=false }
         scroll.addView(controls)
-        root.addView(scroll,LinearLayout.LayoutParams(-1,-2))
-        root.addView(label(11f).apply {
-            text="Tierra y Apophis: vectores JPL Horizons a 00:00 UTC, interpolados entre días. Otros planetas: órbitas ilustrativas. No usar para predecir impactos."
-        })
+        root.addView(scroll,LinearLayout.LayoutParams(-1,0,0.85f))
         setContentView(root)
         repository.cached()?.let {elements=it}
         requestPair()
@@ -199,6 +199,7 @@ class MainActivity:Activity() {
         val token=++version
         pair=null
         pairDate=null
+        hourly=null
         dateLabel.text=requested.toString()
         if(loading) return
         loading=true
@@ -217,35 +218,42 @@ class MainActivity:Activity() {
                     return Snapshot(day,vectors.first,vectors.second,planets,
                         (vectors.first-vectors.second).norm())
                 }
-                accurate(requested) to accurate(requested.plusDays(1))
+                val daily=accurate(requested) to accurate(requested.plusDays(1))
+                val samples=hourlyCache[requested] ?: runCatching { horizons.hourlyVectors(requested) }.getOrNull()?.also { hourlyCache[requested]=it }
+                daily to samples
             }
             runOnUiThread {
                 loading=false
                 if(isFinishing || isDestroyed) return@runOnUiThread
                 if(token!=version) {requestPair();return@runOnUiThread}
-                result.onSuccess {pair=it;pairDate=requested;showFrame()}
+                result.onSuccess {pair=it.first;hourly=it.second;pairDate=requested;showFrame()}
                     .onFailure {status.text="Horizons sin vectores: ${it.message}. Escena no actualizada."}
             }
         }
     }
     private fun interpolate(a:V3,b:V3,t:Double)=a*(1.0-t)+b*t
     private fun showFrame() {
-        dateLabel.text=String.format(Locale.US,"%s · %02d:%02d UTC",date,
-            (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59))
+        dateLabel.text=String.format(Locale.US,"%s · %02d:%02d:%02d UTC",date,
+            (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59),((phase*86400)%60).toInt().coerceIn(0,59))
         if(::timeSeek.isInitialized && !seeking) timeSeek.progress=(phase*86400).toInt().coerceIn(0,86400)
         val p=pair ?: return
         if(pairDate!=date) return
         val t=phase.coerceIn(0.0,1.0)
         val first=p.first;val second=p.second
         val earth=interpolate(first.earth,second.earth,t)
-        val asteroid=interpolate(first.asteroid,second.asteroid,t)
+        val samples=hourly
+        val hour=(t*24.0).coerceIn(0.0,24.0)
+        val index=hour.toInt().coerceIn(0,23)
+        val fraction=hour-index
+        val earthAccurate=if(samples!=null && samples.size==25) interpolate(samples[index].second,samples[index+1].second,fraction) else earth
+        val asteroid=if(samples!=null && samples.size==25) interpolate(samples[index].first,samples[index+1].first,fraction) else interpolate(first.asteroid,second.asteroid,t)
         val planets=first.planets.mapIndexed {index,item ->
             item.first to interpolate(item.second,second.planets[index].second,t)
         }
-        val approximate=(earth-asteroid).norm()
-        space.snapshot=Snapshot(date,asteroid,earth,planets,approximate)
+        val approximate=(earthAccurate-asteroid).norm()
+        space.snapshot=Snapshot(date,asteroid,earthAccurate,planets,approximate)
         val ref=if(horizonsDate==date) horizonsKm else null
-        val model=String.format(Locale.US,"Distancia escena JPL: %,.0f km",approximate*149597870.7)
+        val model=String.format(Locale.US,"Distancia interpolada: %,.0f km",approximate*149597870.7)
         val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
             else "JPL Horizons: pendiente / sin conexión"
         val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"

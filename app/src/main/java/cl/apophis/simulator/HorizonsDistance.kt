@@ -33,7 +33,16 @@ class HorizonsDistance(context: Context) {
         return distance
     }
 
-    fun vector(command: String, date: LocalDate): V3 {
+    fun vector(command: String, date: LocalDate): V3 = vectors(command,date,"1 d").first()
+
+    fun hourlyVectors(date: LocalDate): List<Pair<V3,V3>> {
+        val asteroid=vectors("99942",date,"1 h")
+        val earth=vectors("399",date,"1 h")
+        check(asteroid.size==25 && earth.size==25) { "Horizons no devolvió 25 muestras horarias" }
+        return asteroid.zip(earth)
+    }
+
+    private fun vectors(command: String, date: LocalDate, step: String): List<V3> {
         val params = linkedMapOf(
             "format" to "json",
             "COMMAND" to "'$command'",
@@ -43,7 +52,7 @@ class HorizonsDistance(context: Context) {
             "CENTER" to "'500@10'",
             "START_TIME" to "'$date 00:00'",
             "STOP_TIME" to "'${date.plusDays(1)} 00:00'",
-            "STEP_SIZE" to "'1 d'",
+            "STEP_SIZE" to "'$step'",
             "OUT_UNITS" to "'AU-D'",
             "CSV_FORMAT" to "'YES'"
         )
@@ -65,9 +74,11 @@ class HorizonsDistance(context: Context) {
             val lines = result.substring(start + 5, end).lineSequence()
                 .map { it.trim() }.filter { it.isNotEmpty() }.toList()
             check(lines.isNotEmpty()) { "Horizons no devolvió vectores" }
-            val fields = lines.first().split(",").map { it.trim() }
-            require(fields.size >= 5) { "Formato de vectores inesperado" }
-            return V3(fields[2].toDouble(), fields[3].toDouble(), fields[4].toDouble())
+            return lines.map { line ->
+                val fields=line.split(",").map { it.trim() }
+                require(fields.size >= 5) { "Formato de vectores inesperado" }
+                V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble())
+            }
         } finally {
             connection.disconnect()
         }

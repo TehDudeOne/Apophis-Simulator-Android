@@ -2,6 +2,8 @@ package cl.apophis.simulator
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.BitmapFactory
+import android.opengl.GLUtils
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
@@ -54,6 +56,8 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private var colorHandle=0
     private var lightHandle=0
     private var surfaceHandle=0
+    private var textureHandle=0
+    private var earthTexture=0
     private var indexCount=0
     private lateinit var vertexData:java.nio.FloatBuffer
     private lateinit var indices:java.nio.ShortBuffer
@@ -97,6 +101,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             uniform vec4 uColor;
             uniform float uLight;
             uniform float uSurface;
+            uniform sampler2D uTexture;
             varying vec3 vNormal;
             void main() {
                 float diffuse=max(dot(normalize(vNormal),normalize(vec3(-0.5,0.8,1.0))),0.0);
@@ -107,8 +112,8 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
                 float bands=sin(latitude*42.0+detail*0.8);
                 vec3 base=uColor.rgb;
                 if(uSurface>0.5 && uSurface<1.5) {
-                    float land=sin(longitude*4.0+sin(latitude*7.0))*cos(latitude*5.0);
-                    base=mix(vec3(0.02,0.16,0.48),vec3(0.14,0.38,0.13),smoothstep(-0.12,0.2,land+detail*0.3));
+                    vec2 uv=vec2(fract(0.5+longitude/6.2831853),0.5-latitude/3.14159265);
+                    base=texture2D(uTexture,uv).rgb;
                 } else if(uSurface>1.5 && uSurface<3.5) {
                     base*=0.75+0.25*bands;
                 } else if(uSurface>3.5) {
@@ -129,6 +134,18 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         colorHandle=GLES20.glGetUniformLocation(program,"uColor")
         lightHandle=GLES20.glGetUniformLocation(program,"uLight")
         surfaceHandle=GLES20.glGetUniformLocation(program,"uSurface")
+        textureHandle=GLES20.glGetUniformLocation(program,"uTexture")
+        val idsTexture=IntArray(1)
+        GLES20.glGenTextures(1,idsTexture,0)
+        earthTexture=idsTexture[0]
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,earthTexture)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_REPEAT)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE)
+        val bitmap=view.context.assets.open("earth_map.png").use { BitmapFactory.decodeStream(it) }
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0)
+        bitmap.recycle()
         val positions=ArrayList<Float>()
         val ids=ArrayList<Short>()
         val lat=20;val lon=32
@@ -165,6 +182,9 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
         GLES20.glUseProgram(program)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,earthTexture)
+        GLES20.glUniform1i(textureHandle,0)
         GLES20.glEnableVertexAttribArray(vertices)
         GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,vertexData)
         fun line(points:List<V3>,color:Int) {
@@ -211,6 +231,11 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             if(abs(sx)>halfHeight*aspect*2 || abs(sy)>halfHeight*2) return
             Matrix.setIdentityM(model,0)
             Matrix.translateM(model,0,sx.toFloat(),sy.toFloat(),0f)
+            if(surface==1f) {
+                val days=java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.of(2000,1,1),s.date).toFloat()
+                Matrix.rotateM(model,0,(days*360.9856f)%360f,0f,0f,1f)
+                Matrix.rotateM(model,0,23.44f,1f,0f,0f)
+            }
             Matrix.scaleM(model,0,r.toFloat(),r.toFloat(),r.toFloat())
             Matrix.multiplyMM(tmp,0,camera,0,model,0)
             Matrix.multiplyMM(mvp,0,projection,0,tmp,0)
