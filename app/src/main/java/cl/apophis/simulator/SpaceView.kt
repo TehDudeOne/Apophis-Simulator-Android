@@ -30,7 +30,7 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     })
     private var x=0f
     private var y=0f
-    init { setEGLContextClientVersion(3);setRenderer(renderer3d);renderMode=RENDERMODE_CONTINUOUSLY }
+    init { setEGLContextClientVersion(3);setPreserveEGLContextOnPause(true);setRenderer(renderer3d);renderMode=RENDERMODE_CONTINUOUSLY }
     fun earthRange(km:Double) { focus=1;panX=0.0;panY=0.0;zoom=(5.3*149597870.7/km).coerceIn(.05,1.0e7) }
     override fun onTouchEvent(event:MotionEvent):Boolean {
         pinch.onTouchEvent(event)
@@ -38,8 +38,8 @@ class SpaceView(context: Context): GLSurfaceView(context) {
             MotionEvent.ACTION_DOWN -> {x=event.x;y=event.y;return true}
             MotionEvent.ACTION_MOVE -> {
                 if(event.pointerCount==1 && !pinch.isInProgress) {
-                    panX += (event.x-x)/width.toDouble()*2.0
-                    panY -= (event.y-y)/height.toDouble()*2.0
+                    panX = (panX+(event.x-x)/width.coerceAtLeast(1).toDouble()*2.0).coerceIn(-2.0,2.0)
+                    panY = (panY-(event.y-y)/height.coerceAtLeast(1).toDouble()*2.0).coerceIn(-2.0,2.0)
                 }
                 x=event.x;y=event.y;return true
             }
@@ -59,6 +59,10 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private var textureHandle=0
     private val bodyTextures=mutableMapOf<String,Int>()
     private var indexCount=0
+    private var vao=0
+    private var sphereVbo=0
+    private var sphereIbo=0
+    private var trailVbo=0
     private lateinit var vertexData:java.nio.FloatBuffer
     private lateinit var indices:java.nio.ShortBuffer
     private val projection=FloatArray(16)
@@ -68,6 +72,8 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private val mvp=FloatArray(16)
     private var aspect=1f
     private val asteroidTrail=ArrayDeque<V3>()
+    private var trailEpoch=0L
+    private var lastFocus=-1
     private var lastTrailDay:java.time.LocalDate?=null
     private var lastTrailPosition:V3?=null
     private fun moonOffset(date:java.time.LocalDate):V3 {
@@ -85,8 +91,14 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         return id
     }
     override fun onSurfaceCreated(gl:GL10?, config:EGLConfig?) {
+        bodyTextures.clear()
+        asteroidTrail.clear()
+        lastTrailDay=null
+        lastTrailPosition=null
         GLES30.glClearColor(.012f,.025f,.065f,1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
+        GLES30.glCullFace(GLES30.GL_BACK)
         val vs=shader(GLES30.GL_VERTEX_SHADER,"""
             #version 300 es
             uniform mat4 uMvp;
@@ -153,7 +165,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         }
         val positions=ArrayList<Float>()
         val ids=ArrayList<Short>()
-        val lat=20;val lon=32
+        val lat=40;val lon=64
         for(i in 0..lat) {
             val phi=PI*i/lat
             for(j in 0..lon) {
@@ -174,6 +186,21 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         vertexData.put(positions.toFloatArray()).position(0)
         indices=ByteBuffer.allocateDirect(ids.size*2).order(ByteOrder.nativeOrder()).asShortBuffer()
         indices.put(ids.toShortArray()).position(0)
+        val buffers=IntArray(3)
+        GLES30.glGenBuffers(3,buffers,0)
+        sphereVbo=buffers[0];sphereIbo=buffers[1];trailVbo=buffers[2]
+        val arrays=IntArray(1)
+        GLES30.glGenVertexArrays(1,arrays,0)
+        vao=arrays[0]
+        GLES30.glBindVertexArray(vao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,sphereVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER,positions.size*4,vertexData,GLES30.GL_STATIC_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER,sphereIbo)
+        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER,ids.size*2,indices,GLES30.GL_STATIC_DRAW)
+        GLES30.glEnableVertexAttribArray(vertices)
+        GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
+        GLES30.glBindVertexArray(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,0)
     }
     override fun onSurfaceChanged(gl:GL10?,width:Int,height:Int) {
         GLES30.glViewport(0,0,width,height)
@@ -184,14 +211,20 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         val s=view.snapshot ?: return
         val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> s.earth + moonOffset(s.date); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
         val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
+        if(view.focus!=lastFocus) {
+            asteroidTrail.clear()
+            lastTrailPosition=null
+            lastFocus=view.focus
+        }
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
         GLES30.glUseProgram(program)
+        GLES30.glBindVertexArray(vao)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,bodyTextures.getValue("Tierra"))
         GLES30.glUniform1i(textureHandle,0)
-        GLES30.glEnableVertexAttribArray(vertices)
-        GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,vertexData)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,sphereVbo)
+        GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
         fun line(points:List<V3>,color:Int) {
             if(points.size<2) return
             val coords=FloatArray(points.size*3)
@@ -203,17 +236,20 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             }
             val buffer=ByteBuffer.allocateDirect(coords.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer()
             buffer.put(coords).position(0)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,trailVbo)
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER,coords.size*4,buffer,GLES30.GL_STREAM_DRAW)
             Matrix.multiplyMM(mvp,0,projection,0,camera,0)
             GLES30.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
             GLES30.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
             GLES30.glUniform1f(lightHandle,1f)
             GLES30.glUniform1f(surfaceHandle,0f)
-            GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,buffer)
+            GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
             GLES30.glDrawArrays(GLES30.GL_LINE_STRIP,0,points.size)
-            GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,vertexData)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,sphereVbo)
+            GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,0)
         }
         // Illustrative heliocentric orbital rings, not JPL ephemerides.
-        for((planet,pos) in s.planets) {
+        if(view.zoom<5000.0) for((planet,pos) in s.planets) {
             val radius=sqrt(pos.x*pos.x+pos.y*pos.y)
             if(radius>0.0) line((0..128).map {i ->
                 val angle=2.0*PI*i/128.0
@@ -223,6 +259,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         val previous=lastTrailPosition
         if(lastTrailDay!=s.date || previous==null || (s.asteroid-previous).norm()>0.0000002) {
             if(lastTrailDay!=null && kotlin.math.abs(java.time.temporal.ChronoUnit.DAYS.between(lastTrailDay,s.date))>2) asteroidTrail.clear()
+            if(previous!=null && (s.asteroid-previous).norm()>0.03) asteroidTrail.clear()
             asteroidTrail.addLast(s.asteroid)
             while(asteroidTrail.size>1800) asteroidTrail.removeFirst()
             lastTrailDay=s.date
@@ -250,7 +287,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             GLES30.glUniform1f(surfaceHandle,if(body!=null) 1f else 0f)
             if(body!=null) GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,bodyTextures.getValue(body))
             indices.position(0)
-            GLES30.glDrawElements(GLES30.GL_TRIANGLES,indexCount,GLES30.GL_UNSIGNED_SHORT,indices)
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES,indexCount,GLES30.GL_UNSIGNED_SHORT,0)
         }
         val pixelRadius=halfHeight/max(view.height,1)*2.0
         draw(V3(0.0,0.0,0.0),max(.045,2.5*pixelRadius),Color.YELLOW,true)
@@ -263,6 +300,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         }
         draw(s.earth+moonOffset(s.date),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
         draw(s.asteroid,max(0.000001,3.5*pixelRadius),Color.rgb(255,80,95))
-        GLES30.glDisableVertexAttribArray(vertices)
+        GLES30.glBindVertexArray(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,0)
     }
 }

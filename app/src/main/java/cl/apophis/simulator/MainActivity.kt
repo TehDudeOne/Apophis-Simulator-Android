@@ -36,6 +36,7 @@ class MainActivity:Activity() {
     private var lastFrame=0L
     private var version=0
     private var loading=false
+    private var pendingRequest=false
     private var pair:Pair<Snapshot,Snapshot>?=null
     private var pairDate:LocalDate?=null
     private var horizonsKm:Double?=null
@@ -51,7 +52,7 @@ class MainActivity:Activity() {
             val now=SystemClock.elapsedRealtime()
             val elapsed=((now-lastFrame).coerceIn(0,150)).toDouble()/1000.0
             lastFrame=now
-            if(pairDate==date && pair!=null) {
+            if((pairDate==date && pair!=null) || french.sample(date,phase)!=null) {
                 phase+=elapsed*daysPerSecond
                 if(phase>=1.0 || phase<0.0) {
                     val delta=kotlin.math.floor(phase).toLong()
@@ -202,7 +203,7 @@ class MainActivity:Activity() {
         pairDate=null
         hourly=null
         dateLabel.text=requested.toString()
-        if(loading) return
+        if(loading) { pendingRequest=true; return }
         loading=true
         executor.execute {
             val result=runCatching {
@@ -239,7 +240,11 @@ class MainActivity:Activity() {
             runOnUiThread {
                 loading=false
                 if(isFinishing || isDestroyed) return@runOnUiThread
-                if(token!=version) {requestPair();return@runOnUiThread}
+                if(token!=version || pendingRequest) {
+                    pendingRequest=false
+                    requestPair()
+                    return@runOnUiThread
+                }
                 result.onSuccess {pair=it.first;hourly=it.second;pairDate=requested;showFrame()}
                     .onFailure {status.text="Horizons sin vectores: ${it.message}. Escena no actualizada."}
             }
@@ -250,10 +255,19 @@ class MainActivity:Activity() {
         dateLabel.text=String.format(Locale.US,"%s · %02d:%02d:%02d UTC",date,
             (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59),((phase*86400)%60).toInt().coerceIn(0,59))
         if(::timeSeek.isInitialized && !seeking) timeSeek.progress=(phase*86400).toInt().coerceIn(0,86400)
-        val p=pair ?: return
-        if(pairDate!=date) return
         val t=phase.coerceIn(0.0,1.0)
-        val first=p.first;val second=p.second
+        val liveFrench=french.sample(date,t)
+        val p=if(pairDate==date) pair else null
+        if(p==null && liveFrench==null) return
+        if(p==null && liveFrench!=null) {
+            val fallback=OrbitEngine.compute(elements,date)
+            val earth=fallback.earth
+            space.snapshot=Snapshot(date,earth+liveFrench.position,earth,fallback.planets,liveFrench.position.norm())
+            status.text=String.format(Locale.US,"IMCCE Miriade · Hermite: %,.1f km",liveFrench.position.norm()*149597870.7)
+            return
+        }
+        val pairNow=p ?: return
+        val first=pairNow.first;val second=pairNow.second
         val earth=interpolate(first.earth,second.earth,t)
         val samples=hourly
         val hour=(t*24.0).coerceIn(0.0,24.0)
@@ -264,7 +278,7 @@ class MainActivity:Activity() {
         val planets=first.planets.mapIndexed {index,item ->
             item.first to interpolate(item.second,second.planets[index].second,t)
         }
-        val frenchState=french.sample(date,t)
+        val frenchState=liveFrench
         val sceneEarth=earthAccurate
         val sceneAsteroid=if(frenchState!=null) sceneEarth+frenchState.position else asteroid
         val approximate=if(frenchState!=null) frenchState.position.norm() else (sceneEarth-sceneAsteroid).norm()
@@ -319,7 +333,7 @@ class MainActivity:Activity() {
         }
         super.onSaveInstanceState(outState)
     }
-    override fun onResume() {super.onResume();if(::space.isInitialized) space.onResume()}
+    override fun onResume() {super.onResume();if(::space.isInitialized) space.onResume();showFrame()}
     override fun onPause() {
         if(::space.isInitialized) space.onPause()
         playing=false
