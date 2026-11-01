@@ -49,21 +49,36 @@ class MainActivity:Activity() {
     private val vectorCache=mutableMapOf<LocalDate,Pair<V3,V3>>()
     private val french by lazy { FrenchEphemeris(this) }
     private val hourlyCache=mutableMapOf<LocalDate,List<Pair<V3,V3>>>()
-    private val bodyEphemerides by lazy {BodyEphemerides(horizons)}
+    private val bodyEphemerides by lazy {BodyEphemerides(this,horizons)}
     private val bodyCache=object:LinkedHashMap<LocalDate,BodyEphemerides.Day>(4,0.75f,true) {
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<LocalDate,BodyEphemerides.Day>?):Boolean = size>3
     }
     private val bodyPending=mutableSetOf<LocalDate>()
-    private var bodyStatus="Planetas: modelo aproximado"
-    private fun requestBodies(day:LocalDate) {
-        if(bodyCache.containsKey(day) || !bodyPending.add(day)) return
+    private val bodyAttempted=mutableSetOf<LocalDate>()
+    private var bodyStatus="Efemérides: buscando caché interno"
+    private fun requestBodies(day:LocalDate,force:Boolean=false) {
+        if(bodyPending.contains(day) || (!force && bodyAttempted.contains(day))) return
+        bodyAttempted.add(day)
+        bodyPending.add(day)
         executor.execute {
+            // Load cached bodies first, before contacting any service.
+            val cached=runCatching {bodyEphemerides.cached(day)}.getOrNull()
+            if(cached!=null) runOnUiThread {
+                if(!isFinishing && !isDestroyed) {
+                    bodyCache[day]=cached
+                    if(date==day) {bodyStatus=cached.summary();showFrame()}
+                }
+            }
             val result=runCatching {bodyEphemerides.fetch(day)}
             runOnUiThread {
                 bodyPending.remove(day)
                 if(isFinishing || isDestroyed) return@runOnUiThread
-                result.onSuccess {bodyCache[day]=it;bodyStatus="Planetas/Luna: JPL Horizons"}
-                    .onFailure {bodyStatus="Planetas: aproximación (JPL no disponible)"}
+                result.onSuccess {
+                    bodyCache[day]=it
+                    if(date==day) bodyStatus=it.summary()
+                }.onFailure {
+                    if(date==day) bodyStatus="ERROR efemérides: ${it.message ?: it.javaClass.simpleName}"
+                }
                 if(date==day) showFrame()
             }
         }
@@ -191,6 +206,7 @@ class MainActivity:Activity() {
             "↶ Roll" to {space.rotateRoll(-15.0)},
             "Roll ↷" to {space.rotateRoll(15.0)},
             "Pan/Órbita" to {space.dragToPan=!space.dragToPan;Toast.makeText(this,if(space.dragToPan) "Arrastre: desplazar" else "Arrastre: rotar",Toast.LENGTH_SHORT).show()})
+        buttons("Reintentar efemérides" to {requestBodies(date,true)})
         buttons("Zoom +" to {space.zoom=(space.zoom*2.0).coerceIn(.05,1.0e7)},
             "Zoom -" to {space.zoom=(space.zoom/2.0).coerceIn(.05,1.0e7)},
             "Actualizar JPL" to {refreshJpl()})
@@ -199,6 +215,7 @@ class MainActivity:Activity() {
         root.addView(scroll,LinearLayout.LayoutParams(-1,0,0.85f))
         setContentView(root)
         repository.cached()?.let {elements=it}
+        requestBodies(date)
         requestPair()
         requestHorizons()
         if(savedInstanceState!=null) {
@@ -223,6 +240,7 @@ class MainActivity:Activity() {
         if(playing) togglePlay()
         date=selected
         phase=0.0
+        requestBodies(date)
         (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
             ?.hideSoftInputFromWindow(dateInput.windowToken,0)
         dateInput.clearFocus()
@@ -325,7 +343,7 @@ class MainActivity:Activity() {
         val p=if(pairDate==date) pair else null
         if(p==null && liveFrench==null) return
         space.dayFraction=t
-        if(!bodyCache.containsKey(date) && !bodyPending.contains(date)) requestBodies(date)
+        if(!bodyAttempted.contains(date)) requestBodies(date)
         val ephemeris=bodyCache[date]
         val livePlanets=OrbitEngine.planetPositions(date,t).map { (planet,pos) ->
             planet to (ephemeris?.sample(planet.name,t) ?: pos)
@@ -338,7 +356,7 @@ class MainActivity:Activity() {
             val earth=livePlanets.first { it.first.name=="Tierra" }.second
             space.snapshot=Snapshot(date,earth+liveFrench.position,earth,livePlanets,liveFrench.position.norm())
             val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
-            status.text=String.format(Locale.US,"IMCCE Miriade · Hermite 10 min: %,.1f km",liveFrench.position.norm()*149597870.7)+
+            status.text=String.format(Locale.US,"Apophis IMCCE Miriade (incluido) · %,.1f km",liveFrench.position.norm()*149597870.7)+
                 playback+"\n"+bodyStatus
             return
         }
