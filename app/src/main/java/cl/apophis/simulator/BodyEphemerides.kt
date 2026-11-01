@@ -40,7 +40,7 @@ class BodyEphemerides(context:Context,private val horizons:HorizonsDistance) {
         val ids=linkedMapOf(
             "Mercurio" to "199","Venus" to "299","Tierra" to "399",
             "Luna" to "301","Marte" to "499","Júpiter" to "599",
-            "Saturno" to "699","Urano" to "799","Neptuno" to "899")
+            "Saturno" to "699","Urano" to "799","Neptuno" to "899","Apophis" to "99942")
     }
     private val folder=File(context.filesDir,"ephemerides/jpl-v1").also {it.mkdirs()}
     private fun file(date:LocalDate,name:String)=File(folder,"${date}_${ids.getValue(name)}.json")

@@ -53,6 +53,7 @@ class MainActivity:Activity() {
     private val bodyCache=object:LinkedHashMap<LocalDate,BodyEphemerides.Day>(4,0.75f,true) {
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<LocalDate,BodyEphemerides.Day>?):Boolean = size>3
     }
+    private val asteroidCache=mutableMapOf<LocalDate,BodyEphemerides.Day>()
     private val bodyPending=mutableSetOf<LocalDate>()
     private val bodyAttempted=mutableSetOf<LocalDate>()
     private var bodyStatus="Efemérides: buscando caché interno"
@@ -86,6 +87,7 @@ class MainActivity:Activity() {
             if(cached!=null) runOnUiThread {
                 if(!isFinishing && !isDestroyed) {
                     bodyCache[day]=cached
+                    asteroidCache[day]=cached
                     if(date==day) {bodyStatus=cached.summary();showFrame()}
                 }
             }
@@ -95,6 +97,7 @@ class MainActivity:Activity() {
                 if(isFinishing || isDestroyed) return@runOnUiThread
                 result.onSuccess {
                     bodyCache[day]=it
+                    asteroidCache[day]=it
                     if(date==day) bodyStatus=it.summary()
                 }.onFailure {
                     if(date==day) bodyStatus="ERROR efemérides: ${it.message ?: it.javaClass.simpleName}"
@@ -222,11 +225,11 @@ class MainActivity:Activity() {
             "Neptuno" to {space.focus=10;space.zoom=2.0})
         buttons("◎ Apophis" to {space.focus=2;space.panX=0.0;space.panY=0.0;space.zoom=500.0},
             "Recentrar" to {space.panX=0.0;space.panY=0.0})
-        buttons("↺ Vista" to {space.resetOrientation()},
-            "↶ Roll" to {space.rotateRoll(-15.0)},
+        buttons("↶ Roll" to {space.rotateRoll(-15.0)},
             "Roll ↷" to {space.rotateRoll(15.0)},
             "Pan/Órbita" to {space.dragToPan=!space.dragToPan;Toast.makeText(this,if(space.dragToPan) "Arrastre: desplazar" else "Arrastre: rotar",Toast.LENGTH_SHORT).show()})
-        buttons("Reintentar efemérides" to {requestBodies(date,true)})
+        buttons("Datos ↻" to {requestBodies(date,true)}, "Vista ↺" to {space.resetOrientation()},
+            "Tierra ⊕" to {space.focus=1;space.zoom=200.0;space.panX=0.0;space.panY=0.0})
         buttons("Zoom +" to {space.zoom=(space.zoom*2.0).coerceIn(.05,1.0e7)},
             "Zoom -" to {space.zoom=(space.zoom/2.0).coerceIn(.05,1.0e7)},
             "Actualizar JPL" to {refreshJpl()})
@@ -356,56 +359,34 @@ class MainActivity:Activity() {
     private fun interpolate(a:V3,b:V3,t:Double)=a*(1.0-t)+b*t
     private fun showFrame() {
         dateLabel.text=String.format(Locale.US,"%s · %02d:%02d:%02d UTC",date,
-            (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59),((phase*86400)%60).toInt().coerceIn(0,59))
+            (phase*24).toInt().coerceIn(0,23),((phase*24%1)*60).toInt().coerceIn(0,59),
+            ((phase*86400)%60).toInt().coerceIn(0,59))
         if(::timeSeek.isInitialized && !seeking) timeSeek.progress=(phase*86400).toInt().coerceIn(0,86400)
         val t=phase.coerceIn(0.0,1.0)
-        val liveFrench=french.sample(date,t)
-        val p=if(pairDate==date) pair else null
-        if(p==null && liveFrench==null) return
-        space.dayFraction=t
         if(!bodyAttempted.contains(date)) requestBodies(date)
-        val ephemeris=bodyCache[date]
-        val livePlanets=OrbitEngine.planetPositions(date,t).map { (planet,pos) ->
-            planet to (ephemeris?.sample(planet.name,t) ?: pos)
-        }
-        space.moonPosition=ephemeris?.sample("Luna",t)
-        if(liveFrench!=null) {
-            updateReferenceTrail(date,t)
-            // Miriade geocentric J2000 state rotated to the ecliptic frame; Earth uses JPL secular Kepler elements.
-            // The Miriade asteroid vector is geocentric; translate it by the
-            // same Earth position used for the scene and camera.
-            val earth=livePlanets.first { it.first.name=="Tierra" }.second
-            space.snapshot=Snapshot(date,earth+liveFrench.position,earth,livePlanets,liveFrench.position.norm())
-            val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
-            status.text=String.format(Locale.US,"Apophis IMCCE Miriade (incluido) · %,.1f km",liveFrench.position.norm()*149597870.7)+
-                playback+"\n"+bodyStatus+"\nTrayectoria: IMCCE, geocéntrica, ventana ±12 h"
-            return
-        }
-        space.predictedGeocentricTrail=emptyList()
-        trailDate=null
-        val pairNow=p ?: return
-        val first=pairNow.first;val second=pairNow.second
-        val earth=interpolate(first.earth,second.earth,t)
-        val samples=hourly
-        val hour=(t*24.0).coerceIn(0.0,24.0)
-        val index=hour.toInt().coerceIn(0,23)
-        val fraction=hour-index
-        val earthAccurate=if(samples!=null && samples.size==25) interpolate(samples[index].second,samples[index+1].second,fraction) else earth
-        val asteroid=if(samples!=null && samples.size==25) interpolate(samples[index].first,samples[index+1].first,fraction) else interpolate(first.asteroid,second.asteroid,t)
-        val planets=livePlanets.map { (planet,position) ->
-            // Use the same Earth vector as the asteroid distance computation.
-            planet to if(planet.name=="Tierra") earthAccurate else position
-        }
-        val sceneEarth=earthAccurate
-        val sceneAsteroid=asteroid
-        val approximate=(sceneEarth-sceneAsteroid).norm()
-        space.snapshot=Snapshot(date,sceneAsteroid,sceneEarth,planets,approximate)
-        val ref=if(horizonsDate==date) horizonsKm else null
-        val model=String.format(Locale.US,"Distancia orbital: %,.0f km",approximate*149597870.7)
-        val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
-            else "JPL Horizons: pendiente / sin conexión"
+        val frenchState=french.sample(date,t)
+        val jpl=if(frenchState==null) asteroidCache[date]?.sample("Apophis",t) else null
+        val pairNow=if(pairDate==date) pair else null
+        val fallback=if(frenchState==null && jpl==null && pairNow!=null) {
+            val asteroid=hourly?.takeIf {it.size==25}?.let { samples ->
+                val h=(t*24.0).coerceIn(0.0,24.0)
+                val i=h.toInt().coerceIn(0,23)
+                interpolate(samples[i].first,samples[i+1].first,h-i)
+            } ?: interpolate(pairNow.first.asteroid,pairNow.second.asteroid,t)
+            pairNow.first.copy(asteroid=asteroid)
+        } else null
+        if(frenchState==null && jpl==null && fallback==null) return
+        val resolved=SnapshotResolver.resolve(date,t,bodyCache[date],frenchState,jpl,fallback)
+        space.dayFraction=t
+        space.moonPosition=resolved.moon
+        space.snapshot=resolved.snapshot
+        if(frenchState!=null) updateReferenceTrail(date,t)
+        else {space.predictedGeocentricTrail=emptyList();trailDate=null}
         val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
-        status.text="$reference\n$model$playback\n$bodyStatus"
+        status.text=String.format(Locale.US,"%s · Distancia: %,.1f km",resolved.asteroidSource,
+            resolved.snapshot.earthDistanceAu*149597870.7)+playback+
+            "\n"+resolved.provenance+"\n"+bodyStatus+
+            if(frenchState!=null) "\nTrayectoria: IMCCE geocéntrica ±12 h" else ""
     }
     private fun requestHorizons() {
         val requested=date

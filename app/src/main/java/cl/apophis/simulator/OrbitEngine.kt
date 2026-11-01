@@ -127,17 +127,28 @@ object OrbitEngine {
         var (r, v) = fromElements(el)
         var jd = el.epoch
         val total = target - jd
-        val steps = ceil(abs(total) / .5).toInt()
+        val steps = ceil(abs(total) / .25).toInt()
         require(steps <= 120000) { "Fecha fuera del rango permitido" }
         if (steps > 0) {
-            val h = total / steps
-            repeat(steps) {
+            val direction=if(total>=0) 1.0 else -1.0
+            var remaining=abs(total)
+            while(remaining>1e-10) {
+                val earth=planetAt(planets[2],jd)
+                val distance=(r-earth).norm()
+                val maxStep=when {
+                    distance<0.001 -> 1.0/288.0
+                    distance<0.01 -> 1.0/48.0
+                    distance<0.1 -> 1.0/12.0
+                    else -> .25
+                }
+                val h=direction*min(remaining,maxStep)
                 val a0 = acceleration(r, jd)
                 val next = r + v*h + a0*(.5*h*h)
                 val a1 = acceleration(next, jd+h)
                 v += (a0+a1)*(.5*h)
                 r = next
                 jd += h
+                remaining-=abs(h)
             }
         }
         val bodies = planets.map { it to planetAt(it, target) }
