@@ -4,7 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.BitmapFactory
 import android.opengl.GLUtils
-import android.opengl.GLES20
+import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
@@ -30,7 +30,7 @@ class SpaceView(context: Context): GLSurfaceView(context) {
     })
     private var x=0f
     private var y=0f
-    init { setEGLContextClientVersion(2);setRenderer(renderer3d);renderMode=RENDERMODE_CONTINUOUSLY }
+    init { setEGLContextClientVersion(3);setRenderer(renderer3d);renderMode=RENDERMODE_CONTINUOUSLY }
     fun earthRange(km:Double) { focus=1;panX=0.0;panY=0.0;zoom=(5.3*149597870.7/km).coerceIn(.05,1.0e7) }
     override fun onTouchEvent(event:MotionEvent):Boolean {
         pinch.onTouchEvent(event)
@@ -76,33 +76,36 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         return V3(0.00257*cos(angle),0.00257*sin(angle),0.00023*sin(angle))
     }
     private fun shader(type:Int,code:String):Int {
-        val id=GLES20.glCreateShader(type)
-        GLES20.glShaderSource(id,code)
-        GLES20.glCompileShader(id)
+        val id=GLES30.glCreateShader(type)
+        GLES30.glShaderSource(id,code)
+        GLES30.glCompileShader(id)
         val ok=IntArray(1)
-        GLES20.glGetShaderiv(id,GLES20.GL_COMPILE_STATUS,ok,0)
-        check(ok[0]!=0) { GLES20.glGetShaderInfoLog(id) }
+        GLES30.glGetShaderiv(id,GLES30.GL_COMPILE_STATUS,ok,0)
+        check(ok[0]!=0) { GLES30.glGetShaderInfoLog(id) }
         return id
     }
     override fun onSurfaceCreated(gl:GL10?, config:EGLConfig?) {
-        GLES20.glClearColor(.012f,.025f,.065f,1f)
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-        val vs=shader(GLES20.GL_VERTEX_SHADER,"""
+        GLES30.glClearColor(.012f,.025f,.065f,1f)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        val vs=shader(GLES30.GL_VERTEX_SHADER,"""
+            #version 300 es
             uniform mat4 uMvp;
-            attribute vec3 aPosition;
-            varying vec3 vNormal;
+            in vec3 aPosition;
+            out vec3 vNormal;
             void main() {
                 vNormal=normalize(aPosition);
                 gl_Position=uMvp*vec4(aPosition,1.0);
             }
         """.trimIndent())
-        val fs=shader(GLES20.GL_FRAGMENT_SHADER,"""
+        val fs=shader(GLES30.GL_FRAGMENT_SHADER,"""
+            #version 300 es
             precision mediump float;
             uniform vec4 uColor;
             uniform float uLight;
             uniform float uSurface;
             uniform sampler2D uTexture;
             varying vec3 vNormal;
+            out vec4 fragColor;
             void main() {
                 float diffuse=max(dot(normalize(vNormal),normalize(vec3(-0.5,0.8,1.0))),0.0);
                 float illumination=mix(0.23+0.77*diffuse,1.0,uLight);
@@ -113,38 +116,38 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
                 vec3 base=uColor.rgb;
                 if(uSurface>0.5) {
                     vec2 uv=vec2(fract(0.5+longitude/6.2831853),0.5-latitude/3.14159265);
-                    base=texture2D(uTexture,uv).rgb;
+                    base=texture(uTexture,uv).rgb;
                 }
-                gl_FragColor=vec4(base*illumination,uColor.a);
+                fragColor=vec4(base*illumination,uColor.a);
             }
         """.trimIndent())
-        program=GLES20.glCreateProgram()
-        GLES20.glAttachShader(program,vs);GLES20.glAttachShader(program,fs)
-        GLES20.glLinkProgram(program)
+        program=GLES30.glCreateProgram()
+        GLES30.glAttachShader(program,vs);GLES30.glAttachShader(program,fs)
+        GLES30.glLinkProgram(program)
         val linked=IntArray(1)
-        GLES20.glGetProgramiv(program,GLES20.GL_LINK_STATUS,linked,0)
-        check(linked[0]!=0) { GLES20.glGetProgramInfoLog(program) }
-        GLES20.glDeleteShader(vs);GLES20.glDeleteShader(fs)
-        vertices=GLES20.glGetAttribLocation(program,"aPosition")
-        mvpHandle=GLES20.glGetUniformLocation(program,"uMvp")
-        colorHandle=GLES20.glGetUniformLocation(program,"uColor")
-        lightHandle=GLES20.glGetUniformLocation(program,"uLight")
-        surfaceHandle=GLES20.glGetUniformLocation(program,"uSurface")
-        textureHandle=GLES20.glGetUniformLocation(program,"uTexture")
+        GLES30.glGetProgramiv(program,GLES30.GL_LINK_STATUS,linked,0)
+        check(linked[0]!=0) { GLES30.glGetProgramInfoLog(program) }
+        GLES30.glDeleteShader(vs);GLES30.glDeleteShader(fs)
+        vertices=GLES30.glGetAttribLocation(program,"aPosition")
+        mvpHandle=GLES30.glGetUniformLocation(program,"uMvp")
+        colorHandle=GLES30.glGetUniformLocation(program,"uColor")
+        lightHandle=GLES30.glGetUniformLocation(program,"uLight")
+        surfaceHandle=GLES30.glGetUniformLocation(program,"uSurface")
+        textureHandle=GLES30.glGetUniformLocation(program,"uTexture")
         val bodies=listOf("Tierra","Mercurio","Venus","Luna","Marte","Júpiter","Saturno","Urano","Neptuno")
         for (name in bodies) {
             val ids=IntArray(1)
-            GLES20.glGenTextures(1,ids,0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,ids[0])
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_REPEAT)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE)
+            GLES30.glGenTextures(1,ids,0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,ids[0])
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_MIN_FILTER,GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_MAG_FILTER,GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_WRAP_S,GLES30.GL_REPEAT)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_WRAP_T,GLES30.GL_CLAMP_TO_EDGE)
             val bitmap=if(name=="Tierra") {
                 view.context.assets.open("earth_map.png").use { BitmapFactory.decodeStream(it) }
             } else PlanetTextures.create(name)
             requireNotNull(bitmap) { "No se pudo crear la textura de $name" }
-            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0)
+            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D,0,bitmap,0)
             bitmap.recycle()
             bodyTextures[name]=ids[0]
         }
@@ -173,22 +176,22 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         indices.put(ids.toShortArray()).position(0)
     }
     override fun onSurfaceChanged(gl:GL10?,width:Int,height:Int) {
-        GLES20.glViewport(0,0,width,height)
+        GLES30.glViewport(0,0,width,height)
         aspect=width.toFloat()/max(height,1)
     }
     override fun onDrawFrame(gl:GL10?) {
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s=view.snapshot ?: return
         val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> s.earth + moonOffset(s.date); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
         val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
         Matrix.orthoM(projection,0,(-halfHeight*aspect).toFloat(),(halfHeight*aspect).toFloat(),(-halfHeight).toFloat(),halfHeight.toFloat(),.001f,500f)
         Matrix.setLookAtM(camera,0,0f,0f,40f,0f,0f,0f,0f,1f,0f)
-        GLES20.glUseProgram(program)
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,bodyTextures.getValue("Tierra"))
-        GLES20.glUniform1i(textureHandle,0)
-        GLES20.glEnableVertexAttribArray(vertices)
-        GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,vertexData)
+        GLES30.glUseProgram(program)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,bodyTextures.getValue("Tierra"))
+        GLES30.glUniform1i(textureHandle,0)
+        GLES30.glEnableVertexAttribArray(vertices)
+        GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,vertexData)
         fun line(points:List<V3>,color:Int) {
             if(points.size<2) return
             val coords=FloatArray(points.size*3)
@@ -201,13 +204,13 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             val buffer=ByteBuffer.allocateDirect(coords.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer()
             buffer.put(coords).position(0)
             Matrix.multiplyMM(mvp,0,projection,0,camera,0)
-            GLES20.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
-            GLES20.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
-            GLES20.glUniform1f(lightHandle,1f)
-            GLES20.glUniform1f(surfaceHandle,0f)
-            GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,buffer)
-            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP,0,points.size)
-            GLES20.glVertexAttribPointer(vertices,3,GLES20.GL_FLOAT,false,12,vertexData)
+            GLES30.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
+            GLES30.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
+            GLES30.glUniform1f(lightHandle,1f)
+            GLES30.glUniform1f(surfaceHandle,0f)
+            GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,buffer)
+            GLES30.glDrawArrays(GLES30.GL_LINE_STRIP,0,points.size)
+            GLES30.glVertexAttribPointer(vertices,3,GLES30.GL_FLOAT,false,12,vertexData)
         }
         // Illustrative heliocentric orbital rings, not JPL ephemerides.
         for((planet,pos) in s.planets) {
@@ -241,13 +244,13 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             Matrix.scaleM(model,0,r.toFloat(),r.toFloat(),r.toFloat())
             Matrix.multiplyMM(tmp,0,camera,0,model,0)
             Matrix.multiplyMM(mvp,0,projection,0,tmp,0)
-            GLES20.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
-            GLES20.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
-            GLES20.glUniform1f(lightHandle,if(emissive) 1f else 0f)
-            GLES20.glUniform1f(surfaceHandle,if(body!=null) 1f else 0f)
-            if(body!=null) GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,bodyTextures.getValue(body))
+            GLES30.glUniformMatrix4fv(mvpHandle,1,false,mvp,0)
+            GLES30.glUniform4f(colorHandle,Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,1f)
+            GLES30.glUniform1f(lightHandle,if(emissive) 1f else 0f)
+            GLES30.glUniform1f(surfaceHandle,if(body!=null) 1f else 0f)
+            if(body!=null) GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,bodyTextures.getValue(body))
             indices.position(0)
-            GLES20.glDrawElements(GLES20.GL_TRIANGLES,indexCount,GLES20.GL_UNSIGNED_SHORT,indices)
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES,indexCount,GLES30.GL_UNSIGNED_SHORT,indices)
         }
         val pixelRadius=halfHeight/max(view.height,1)*2.0
         draw(V3(0.0,0.0,0.0),max(.045,2.5*pixelRadius),Color.YELLOW,true)
@@ -260,6 +263,6 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         }
         draw(s.earth+moonOffset(s.date),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
         draw(s.asteroid,max(0.000001,3.5*pixelRadius),Color.rgb(255,80,95))
-        GLES20.glDisableVertexAttribArray(vertices)
+        GLES30.glDisableVertexAttribArray(vertices)
     }
 }

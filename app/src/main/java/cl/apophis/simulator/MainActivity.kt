@@ -41,6 +41,7 @@ class MainActivity:Activity() {
     private var horizonsKm:Double?=null
     private var horizonsDate:LocalDate?=null
     private val vectorCache=mutableMapOf<LocalDate,Pair<V3,V3>>()
+    private val french by lazy { FrenchEphemeris(this) }
     private val hourlyCache=mutableMapOf<LocalDate,List<Pair<V3,V3>>>()
     private var hourly:List<Pair<V3,V3>>?=null
 
@@ -206,6 +207,12 @@ class MainActivity:Activity() {
         executor.execute {
             val result=runCatching {
                 fun accurate(day:LocalDate):Snapshot {
+                    val frenchState=french.sample(day,0.0)
+                    if (frenchState!=null) {
+                        val fallback=OrbitEngine.compute(selected,day)
+                        val earth=fallback.earth
+                        return Snapshot(day,earth+frenchState.position,earth,fallback.planets,frenchState.position.norm())
+                    }
                     val fallback=OrbitEngine.compute(selected,day)
                     val vectors=vectorCache[day] ?: run {
                         val asteroid=horizons.vector("99942",day)
@@ -219,7 +226,8 @@ class MainActivity:Activity() {
                         (vectors.first-vectors.second).norm())
                 }
                 val daily=accurate(requested) to accurate(requested.plusDays(1))
-                val samples=hourlyCache[requested] ?: runCatching { horizons.hourlyVectors(requested) }.getOrNull()?.also { hourlyCache[requested]=it }
+                val samples=if(french.sample(requested,0.0)!=null) null
+                    else hourlyCache[requested] ?: runCatching { horizons.hourlyVectors(requested) }.getOrNull()?.also { hourlyCache[requested]=it }
                 daily to samples
             }
             runOnUiThread {
@@ -250,17 +258,24 @@ class MainActivity:Activity() {
         val planets=first.planets.mapIndexed {index,item ->
             item.first to interpolate(item.second,second.planets[index].second,t)
         }
-        val approximate=(earthAccurate-asteroid).norm()
-        space.snapshot=Snapshot(date,asteroid,earthAccurate,planets,approximate)
+        val frenchState=french.sample(date,t)
+        val sceneEarth=earthAccurate
+        val sceneAsteroid=if(frenchState!=null) sceneEarth+frenchState.position else asteroid
+        val approximate=if(frenchState!=null) frenchState.position.norm() else (sceneEarth-sceneAsteroid).norm()
+        space.snapshot=Snapshot(date,sceneAsteroid,sceneEarth,planets,approximate)
         val ref=if(horizonsDate==date) horizonsKm else null
-        val model=String.format(Locale.US,"Distancia interpolada: %,.0f km",approximate*149597870.7)
+        val model=if(frenchState!=null)
+            String.format(Locale.US,"IMCCE Miriade · Hermite 10 min: %,.1f km",approximate*149597870.7)
+            else String.format(Locale.US,"Distancia JPL interpolada: %,.0f km",approximate*149597870.7)
         val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
             else "JPL Horizons: pendiente / sin conexión"
         val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
-        status.text="$reference\n$model$playback"
+        status.text=if(frenchState!=null) "$model$playback\nReferencia: geocéntrica astrométrica J2000"
+            else "$reference\n$model$playback"
     }
     private fun requestHorizons() {
         val requested=date
+        if(french.sample(requested,phase)!=null) { horizonsDate=null; horizonsKm=null; showFrame(); return }
         horizonsDate=requested
         horizonsKm=horizons.cached(requested)
         showFrame()
