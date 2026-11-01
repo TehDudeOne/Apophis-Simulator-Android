@@ -35,6 +35,42 @@ class HorizonsDistance(context: Context) {
 
     fun vector(command: String, date: LocalDate): V3 = vectors(command,date,"1 d").first()
 
+    fun hourlyStates(command:String,date:LocalDate):List<Pair<V3,V3>> {
+        val params=linkedMapOf(
+            "format" to "json","COMMAND" to "'$command'","OBJ_DATA" to "'NO'",
+            "MAKE_EPHEM" to "'YES'","EPHEM_TYPE" to "'VECTORS'",
+            "CENTER" to "'500@10'","REF_PLANE" to "'ECLIPTIC'",
+            "REF_SYSTEM" to "'ICRF'","VEC_CORR" to "'NONE'",
+            "TIME_TYPE" to "'UT'","TIME_DIGITS" to "'SECONDS'",
+            "START_TIME" to "'$date 00:00'",
+            "STOP_TIME" to "'${date.plusDays(1)} 00:00'",
+            "STEP_SIZE" to "'1 h'","OUT_UNITS" to "'AU-D'",
+            "VEC_TABLE" to "'2'","VEC_LABELS" to "'NO'",
+            "CSV_FORMAT" to "'YES'")
+        val query=params.entries.joinToString("&") { (k,v) ->
+            URLEncoder.encode(k,"UTF-8")+"="+URLEncoder.encode(v,"UTF-8")
+        }
+        val connection=URL("https://ssd.jpl.nasa.gov/api/horizons.api?$query")
+            .openConnection() as HttpURLConnection
+        connection.connectTimeout=15000
+        connection.readTimeout=20000
+        try {
+            check(connection.responseCode==200) {"Horizons HTTP ${connection.responseCode}"}
+            val response=JSONObject(connection.inputStream.bufferedReader().use {it.readText()}).getString("result")
+            val marker=36.toChar().toString().repeat(2)
+            val start=response.indexOf(marker+"SOE")
+            val end=response.indexOf(marker+"EOE")
+            check(start>=0 && end>start) {"No Horizons vectors for $command"}
+            return response.substring(start+5,end).lineSequence()
+                .map {it.trim()}.filter {it.isNotEmpty()}.map {line ->
+                    val fields=line.split(",").map {it.trim()}
+                    require(fields.size>=8) {"Malformed Horizons vector"}
+                    V3(fields[2].toDouble(),fields[3].toDouble(),fields[4].toDouble()) to
+                        V3(fields[5].toDouble(),fields[6].toDouble(),fields[7].toDouble())
+                }.toList()
+        } finally {connection.disconnect()}
+    }
+
     fun hourlyVectors(date: LocalDate): List<Pair<V3,V3>> {
         val asteroid=vectors("99942",date,"1 h")
         val earth=vectors("399",date,"1 h")

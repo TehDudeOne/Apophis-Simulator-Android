@@ -49,6 +49,26 @@ class MainActivity:Activity() {
     private val vectorCache=mutableMapOf<LocalDate,Pair<V3,V3>>()
     private val french by lazy { FrenchEphemeris(this) }
     private val hourlyCache=mutableMapOf<LocalDate,List<Pair<V3,V3>>>()
+    private val bodyEphemerides by lazy {BodyEphemerides(horizons)}
+    private val bodyCache=object:LinkedHashMap<LocalDate,BodyEphemerides.Day>(4,0.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<LocalDate,BodyEphemerides.Day>?):Boolean = size>3
+    }
+    private val bodyPending=mutableSetOf<LocalDate>()
+    private var bodyStatus="Planetas: modelo aproximado"
+    private fun requestBodies(day:LocalDate) {
+        if(bodyCache.containsKey(day) || !bodyPending.add(day)) return
+        executor.execute {
+            val result=runCatching {bodyEphemerides.fetch(day)}
+            runOnUiThread {
+                bodyPending.remove(day)
+                if(isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess {bodyCache[day]=it;bodyStatus="Planetas/Luna: JPL Horizons"}
+                    .onFailure {bodyStatus="Planetas: aproximación (JPL no disponible)"}
+                if(date==day) showFrame()
+            }
+        }
+    }
+
     private var hourly:List<Pair<V3,V3>>?=null
 
     private val frames=object:Runnable {
@@ -305,7 +325,12 @@ class MainActivity:Activity() {
         val p=if(pairDate==date) pair else null
         if(p==null && liveFrench==null) return
         space.dayFraction=t
-        val livePlanets=OrbitEngine.planetPositions(date,t)
+        if(!bodyCache.containsKey(date) && !bodyPending.contains(date)) requestBodies(date)
+        val ephemeris=bodyCache[date]
+        val livePlanets=OrbitEngine.planetPositions(date,t).map { (planet,pos) ->
+            planet to (ephemeris?.sample(planet.name,t) ?: pos)
+        }
+        space.moonPosition=ephemeris?.sample("Luna",t)
         if(liveFrench!=null) {
             // Miriade geocentric J2000 state rotated to the ecliptic frame; Earth uses JPL secular Kepler elements.
             // The Miriade asteroid vector is geocentric; translate it by the
@@ -314,7 +339,7 @@ class MainActivity:Activity() {
             space.snapshot=Snapshot(date,earth+liveFrench.position,earth,livePlanets,liveFrench.position.norm())
             val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
             status.text=String.format(Locale.US,"IMCCE Miriade · Hermite 10 min: %,.1f km",liveFrench.position.norm()*149597870.7)+
-                playback+"\nReferencia: geocéntrica astrométrica J2000"
+                playback+"\n"+bodyStatus
             return
         }
         val pairNow=p ?: return
@@ -339,7 +364,7 @@ class MainActivity:Activity() {
         val reference=if(ref!=null) String.format(Locale.US,"JPL Horizons (00:00 UTC): %,.0f km",ref)
             else "JPL Horizons: pendiente / sin conexión"
         val playback=if(playing) String.format(Locale.US," · ▶ %.1f d/s",daysPerSecond) else " · Pausa"
-        status.text="$reference\n$model$playback"
+        status.text="$reference\n$model$playback\n$bodyStatus"
     }
     private fun requestHorizons() {
         val requested=date

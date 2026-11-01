@@ -18,6 +18,7 @@ import kotlin.math.*
 class SpaceView(context: Context): GLSurfaceView(context) {
     @Volatile var snapshot: Snapshot? = null
     @Volatile var dayFraction = 0.0
+    @Volatile var moonPosition:V3?=null
     @Volatile var focus = 0 // 0=Sol, 1=Tierra, 2=Apophis
     @Volatile var zoom = 1.0
     @Volatile var panX = 0.0
@@ -243,7 +244,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     override fun onDrawFrame(gl:GL10?) {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s=view.snapshot ?: return
-        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> s.earth + OrbitEngine.moonOffset(s.date,view.dayFraction); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
+        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> (view.moonPosition ?: (s.earth + OrbitEngine.moonOffset(s.date,view.dayFraction))); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
         val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
         if(view.focus!=lastFocus) {
             asteroidTrail.clear()
@@ -336,7 +337,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             }/149597870.7
             draw(pos,max(physical,3.0*pixelRadius),planet.color,false,1f,planet.name)
         }
-        draw(s.earth+OrbitEngine.moonOffset(s.date,view.dayFraction),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
+        draw((view.moonPosition ?: (s.earth+OrbitEngine.moonOffset(s.date,view.dayFraction))),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
         draw(s.asteroid,max(0.000001,3.5*pixelRadius),Color.rgb(255,80,95))
         GLES30.glBindVertexArray(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,0)
