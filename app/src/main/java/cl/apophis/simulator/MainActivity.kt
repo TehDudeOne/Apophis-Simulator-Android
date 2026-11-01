@@ -63,16 +63,27 @@ class MainActivity:Activity() {
         // A centered 24-hour window, sampled every 10 minutes. This curve is
         // rebuilt when time changes and never depends on previous render frames.
         if(trailDate==day && kotlin.math.abs(trailPhase-fraction)<(1.0/144.0)) return
-        val points=ArrayList<V3>(145)
         val center=day.toEpochDay().toDouble()+fraction
-        for(i in -72..72) {
-            val instant=center+i/144.0
-            val epochDay=kotlin.math.floor(instant).toLong()
-            val phaseAt=instant-epochDay
-            val state=french.sample(LocalDate.ofEpochDay(epochDay),phaseAt)
-            if(state!=null) points.add(state.position)
+        val now=french.sample(day,fraction)?.position
+        val past=ArrayList<V3>(73)
+        val future=ArrayList<V3>(145)
+        if(now!=null) {
+            for(i in -72 until 0) {
+                val instant=center+i/144.0
+                val epochDay=kotlin.math.floor(instant).toLong()
+                french.sample(LocalDate.ofEpochDay(epochDay),instant-epochDay)?.position?.let(past::add)
+            }
+            past.add(now)
+            future.add(now)
+            for(i in 1..144) {
+                val instant=center+i/144.0
+                val epochDay=kotlin.math.floor(instant).toLong()
+                val point=french.sample(LocalDate.ofEpochDay(epochDay),instant-epochDay)?.position ?: break
+                future.add(point)
+            }
         }
-        space.predictedGeocentricTrail=if(points.size>=2) points else emptyList()
+        space.pastGeocentricTrail=past
+        space.predictedGeocentricTrail=future
         trailDate=day
         trailPhase=fraction
     }
