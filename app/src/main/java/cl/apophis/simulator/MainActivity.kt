@@ -307,7 +307,7 @@ class MainActivity:Activity() {
         space.dayFraction=t
         val livePlanets=OrbitEngine.planetPositions(date,t)
         if(liveFrench!=null) {
-            // A single continuous planetary clock for all 432 Miriade samples.
+            // Miriade geocentric J2000 state rotated to the ecliptic frame; Earth uses JPL secular Kepler elements.
             // The Miriade asteroid vector is geocentric; translate it by the
             // same Earth position used for the scene and camera.
             val earth=livePlanets.first { it.first.name=="Tierra" }.second

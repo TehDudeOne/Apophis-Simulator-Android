@@ -34,18 +34,61 @@ object OrbitEngine {
     val fallback = Elements(.9224, .1911, 3.34, 204.4, 126.4, 0.0, 2460000.5)
 
     fun julian(date: LocalDate): Double = date.toEpochDay() + 2440587.5
-    private fun planetAt(p: Planet, jd: Double): V3 {
-        val angle = p.phase + 2.0 * PI * (jd - J2000) / p.period
-        return V3(p.radius * cos(angle), p.radius * sin(angle), 0.0)
+    // JPL approximate Kepler elements and century rates, 1800–2050.
+    // Heliocentric mean ecliptic and equinox J2000; not Horizons vectors.
+    private val secular=arrayOf(
+        doubleArrayOf(0.38709927,3.7e-7,0.20563593,0.00001906,7.00497902,-0.00594749,252.2503235,149472.67411175,77.45779628,0.16047689,48.33076593,-0.12534081),
+        doubleArrayOf(0.72333566,0.0000039,0.00677672,-0.00004107,3.39467605,-0.0007889,181.9790995,58517.81538729,131.60246718,0.00268329,76.67984255,-0.27769418),
+        doubleArrayOf(1.00000261,0.00000562,0.01671123,-0.00004392,-0.00001531,-0.01294668,100.46457166,35999.37244981,102.93768193,0.32327364,0,0),
+        doubleArrayOf(1.52371034,0.00001847,0.0933941,0.00007882,1.84969142,-0.00813131,-4.55343205,19140.30268499,-23.94362959,0.44441088,49.55953891,-0.29257343),
+        doubleArrayOf(5.202887,-0.00011607,0.04838624,-0.00013253,1.30439695,-0.00183714,34.39644051,3034.74612775,14.72847983,0.21252668,100.47390909,0.20469106),
+        doubleArrayOf(9.53667594,-0.0012506,0.05386179,-0.00050991,2.48599187,0.00193609,49.95424423,1222.49362201,92.59887831,-0.41897216,113.66242448,-0.28867794),
+        doubleArrayOf(19.18916464,-0.00196176,0.04725744,-0.00004397,0.77263783,-0.00242939,313.23810451,428.48202785,170.9542763,0.40805281,74.01692503,0.04240589),
+        doubleArrayOf(30.06992276,0.00026291,0.00859048,0.00005105,1.77004347,0.00035372,-55.12002969,218.45945325,44.96476227,-0.32241464,131.78422574,-0.00508664)
+    )
+    private fun planetAt(p:Planet,jd:Double):V3 {
+        val v=secular[planets.indexOf(p)]
+        val t=(jd-J2000)/36525.0
+        val a=v[0]+v[1]*t
+        val e=v[2]+v[3]*t
+        val inc=(v[4]+v[5]*t)*RAD
+        val longitude=(v[6]+v[7]*t)*RAD
+        val peri=(v[8]+v[9]*t)*RAD
+        val node=(v[10]+v[11]*t)*RAD
+        val m=atan2(sin(longitude-peri),cos(longitude-peri))
+        var eccentric=m
+        repeat(12) {eccentric-=(eccentric-e*sin(eccentric)-m)/(1.0-e*cos(eccentric))}
+        val px=a*(cos(eccentric)-e)
+        val py=a*sqrt(1-e*e)*sin(eccentric)
+        val arg=peri-node
+        val x=px*cos(arg)-py*sin(arg)
+        val y=px*sin(arg)+py*cos(arg)
+        return V3(x*cos(node)-y*cos(inc)*sin(node),
+            x*sin(node)+y*cos(inc)*cos(node),y*sin(inc))
     }
-    /**
-     * Continuous planetary positions at a fractional UTC day.
-     * This remains a simplified circular-orbit visualization, not JPL planetary vectors.
-     */
-    fun planetPositions(date: LocalDate, phase: Double): List<Pair<Planet,V3>> {
-        require(phase.isFinite() && phase >= 0.0 && phase <= 1.0)
+    /** Continuous positions in a common heliocentric J2000 ecliptic frame. */
+    fun planetPositions(date:LocalDate,phase:Double):List<Pair<Planet,V3>> {
+        require(phase.isFinite() && phase in 0.0..1.0)
         val jd=julian(date)+phase
-        return planets.map { it to planetAt(it,jd) }
+        return planets.map {it to planetAt(it,jd)}
+    }
+    /** Approximate eccentric, inclined lunar orbit in J2000 ecliptic axes. */
+    fun moonOffset(date:LocalDate,phase:Double):V3 {
+        val d=julian(date)+phase-J2000
+        val m=atan2(sin((134.9634+13.06499295*d)*RAD),cos((134.9634+13.06499295*d)*RAD))
+        val node=(125.04452-.0529538083*d)*RAD
+        val arg=(318.0634+.1643573223*d)*RAD
+        val e=.0549
+        var eccentric=m
+        repeat(10) {eccentric-=(eccentric-e*sin(eccentric)-m)/(1.0-e*cos(eccentric))}
+        val a=384400.0/149597870.7
+        val px=a*(cos(eccentric)-e)
+        val py=a*sqrt(1-e*e)*sin(eccentric)
+        val x=px*cos(arg)-py*sin(arg)
+        val y=px*sin(arg)+py*cos(arg)
+        val inc=5.145*RAD
+        return V3(x*cos(node)-y*cos(inc)*sin(node),
+            x*sin(node)+y*cos(inc)*cos(node),y*sin(inc))
     }
 
     private fun fromElements(el: Elements): Pair<V3,V3> {

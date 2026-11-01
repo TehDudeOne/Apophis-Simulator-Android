@@ -10,8 +10,7 @@ import kotlin.math.*
  * Source: user-provided ephemcc CSV, ticket 188061910888119708.
  *
  * Reference ephemeris interpolation; NOT an independent N-body integration.
- * Do not mix these relative equatorial coordinates with heliocentric ecliptic
- * coordinates except for schematic rendering; use relative norms for distance.
+ * Samples are rotated into the common J2000 ecliptic frame before rendering.
  */
 class FrenchEphemeris(context: Context) {
     data class State(val position: V3, val velocity: V3)
@@ -49,7 +48,11 @@ class FrenchEphemeris(context: Context) {
         val dh11=3*u2-2*u
         val v=a.position*(dh00*secondsPerDay/600.0) + a.velocity*dh10 +
               b.position*(dh01*secondsPerDay/600.0) + b.velocity*dh11
-        return State(p,v)
+        return State(equatorialToEcliptic(p),equatorialToEcliptic(v))
+    }
+    private fun equatorialToEcliptic(v:V3):V3 {
+        val angle=Math.toRadians(23.439291111)
+        return V3(v.x,v.y*cos(angle)+v.z*sin(angle),-v.y*sin(angle)+v.z*cos(angle))
     }
     fun distanceKm(date:LocalDate,phase:Double):Double? = sample(date,phase)?.position?.norm()?.times(au)
 }

@@ -115,11 +115,6 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     private var lastFocus=-1
     private var lastTrailDay:java.time.LocalDate?=null
     private var lastTrailPosition:V3?=null
-    private fun moonOffset(date:java.time.LocalDate, fraction:Double):V3 {
-        val days=date.toEpochDay().toDouble()-java.time.LocalDate.of(2000,1,1).toEpochDay()+fraction
-        val angle=2.0*PI*days/27.321661
-        return V3(0.00257*cos(angle),0.00257*sin(angle),0.00023*sin(angle))
-    }
     private fun shader(type:Int,code:String):Int {
         val id=GLES30.glCreateShader(type)
         GLES30.glShaderSource(id,code)
@@ -248,7 +243,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
     override fun onDrawFrame(gl:GL10?) {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s=view.snapshot ?: return
-        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> s.earth + moonOffset(s.date,view.dayFraction); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
+        val center=when(view.focus) { 1 -> s.earth; 2 -> s.asteroid; 3 -> s.earth + OrbitEngine.moonOffset(s.date,view.dayFraction); in 4..10 -> s.planets.getOrNull(if(view.focus<=5) view.focus-4 else view.focus-3)?.second ?: s.earth; else -> V3(0.0,0.0,0.0) }
         val halfHeight=5.3/view.zoom.coerceIn(0.05,1.0e7)
         if(view.focus!=lastFocus) {
             asteroidTrail.clear()
@@ -341,7 +336,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             }/149597870.7
             draw(pos,max(physical,3.0*pixelRadius),planet.color,false,1f,planet.name)
         }
-        draw(s.earth+moonOffset(s.date,view.dayFraction),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
+        draw(s.earth+OrbitEngine.moonOffset(s.date,view.dayFraction),max(1737.4/149597870.7,2.5*pixelRadius),Color.LTGRAY,false,1f,"Luna")
         draw(s.asteroid,max(0.000001,3.5*pixelRadius),Color.rgb(255,80,95))
         GLES30.glBindVertexArray(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,0)
