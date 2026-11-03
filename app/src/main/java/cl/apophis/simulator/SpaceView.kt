@@ -175,26 +175,43 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
         lightHandle=GLES30.glGetUniformLocation(program,"uLight")
         surfaceHandle=GLES30.glGetUniformLocation(program,"uSurface")
         textureHandle=GLES30.glGetUniformLocation(program,"uTexture")
-        val bodies=listOf("Tierra","Mercurio","Venus","Luna","Marte","Júpiter","Saturno","Urano","Neptuno")
+        val textureAssets=mapOf(
+            "Sol" to "sun_map.jpg",
+            "Mercurio" to "mercury_map.jpg",
+            "Venus" to "venus_map.jpg",
+            "Tierra" to "earth_map.jpg",
+            "Marte" to "mars_map.jpg",
+            "Júpiter" to "jupiter_map.jpg",
+            "Saturno" to "saturn_map.jpg",
+            "Urano" to "uranus_map.jpg",
+            "Neptuno" to "neptune_map.jpg",
+            "Luna" to "moon_map.jpg"
+        )
+        val bodies=textureAssets.keys
         for (name in bodies) {
             val ids=IntArray(1)
             GLES30.glGenTextures(1,ids,0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,ids[0])
-            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_MIN_FILTER,GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_MIN_FILTER,GLES30.GL_LINEAR_MIPMAP_LINEAR)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_MAG_FILTER,GLES30.GL_LINEAR)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_WRAP_S,GLES30.GL_REPEAT)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_WRAP_T,GLES30.GL_CLAMP_TO_EDGE)
-            val bitmap=if(name=="Tierra") {
-                view.context.assets.open("earth_map.png").use { BitmapFactory.decodeStream(it) }
-            } else PlanetTextures.create(name)
+            val options=BitmapFactory.Options().apply {
+                inPreferredConfig=BitmapFactory.Config.RGB_565
+                inScaled=false
+            }
+            val bitmap=view.context.assets.open(textureAssets.getValue(name)).use {
+                BitmapFactory.decodeStream(it,null,options)
+            }
             requireNotNull(bitmap) { "No se pudo crear la textura de $name" }
             GLUtils.texImage2D(GLES30.GL_TEXTURE_2D,0,bitmap,0)
+            GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
             bitmap.recycle()
             bodyTextures[name]=ids[0]
         }
         val positions=ArrayList<Float>()
         val ids=ArrayList<Short>()
-        val lat=40;val lon=64
+        val lat=96;val lon=128
         for(i in 0..lat) {
             val phi=PI*i/lat
             for(j in 0..lon) {
@@ -309,8 +326,20 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             Matrix.translateM(model,0,sx.toFloat(),sy.toFloat(),sz.toFloat())
             if(body!=null) {
                 val days=(java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.of(2000,1,1),s.date).toDouble()+view.dayFraction).toFloat()
-                Matrix.rotateM(model,0,(days*360.9856f)%360f,0f,0f,1f)
-                Matrix.rotateM(model,0,23.44f,1f,0f,0f)
+                val rotationDays=when(body) {
+                    "Sol" -> 25.05f; "Mercurio" -> 58.646f; "Venus" -> -243.025f
+                    "Tierra" -> 0.99727f; "Luna" -> 27.322f; "Marte" -> 1.02596f
+                    "Júpiter" -> 0.41354f; "Saturno" -> 0.44401f
+                    "Urano" -> -0.71833f; else -> 0.67125f
+                }
+                val axialTilt=when(body) {
+                    "Sol" -> 7.25f; "Mercurio" -> 0.034f; "Venus" -> 177.36f
+                    "Tierra" -> 23.44f; "Luna" -> 6.68f; "Marte" -> 25.19f
+                    "Júpiter" -> 3.13f; "Saturno" -> 26.73f
+                    "Urano" -> 97.77f; else -> 28.32f
+                }
+                Matrix.rotateM(model,0,axialTilt,1f,0f,0f)
+                Matrix.rotateM(model,0,(days*360f/rotationDays)%360f,0f,0f,1f)
             }
             Matrix.scaleM(model,0,r.toFloat(),r.toFloat(),r.toFloat())
             Matrix.multiplyMM(tmp,0,camera,0,model,0)
@@ -324,7 +353,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             GLES30.glDrawElements(GLES30.GL_TRIANGLES,indexCount,GLES30.GL_UNSIGNED_SHORT,0)
         }
         val pixelRadius=halfHeight/max(view.height,1)*2.0
-        draw(V3(0.0,0.0,0.0),max(.045,2.5*pixelRadius),Color.YELLOW,true)
+        draw(V3(0.0,0.0,0.0),max(.045,2.5*pixelRadius),Color.WHITE,true,body="Sol")
         for((planet,pos) in s.planets) {
             val physical=when(planet.name) {
                 "Mercurio"->2439.7;"Venus"->6051.8;"Tierra"->6371.0;"Marte"->3389.5

@@ -1,9 +1,9 @@
 # Apophis Simulator Android 0.4.0 (experimental)
 
-Native Kotlin Android app with OpenGL ES 2.0 rendering and approximate solar-system dynamics.
+Native Kotlin Android app with OpenGL ES 3.0 rendering and approximate solar-system dynamics.
 
 ## Features
-- OpenGL ES 2.0 shaded 3D sphere geometry for the Sun, eight planets and Apophis (apparent sizes enlarged for visibility).
+- OpenGL ES 3.0 shaded 3D spheres for the Sun, eight planets, Moon and Apophis (apparent sizes enlarged for visibility), with 2K image maps for the Sun and planetary bodies.
 - Smooth frame animation via interpolation between daily integration snapshots, with playback speed controls.
 - Pinch zoom, touch pan, heliocentric/geocentric camera, 35,000 km camera-range preset.
 - JPL Horizons **geometric Earth–Apophis separation at 00:00 UTC** retrieved independently using heliocentric vectors; daily offline cache.
@@ -14,3 +14,5 @@ The drawn planetary positions use approximate circular coplanar orbits; their ph
 
 ## Build
 The GitHub Actions workflow builds a debug APK. Debug builds on separate runners can have different signing keys and cannot reliably update each other. A stable release-signing pipeline remains to be implemented.
+
+Planet map sources and license attribution are documented in [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md).
