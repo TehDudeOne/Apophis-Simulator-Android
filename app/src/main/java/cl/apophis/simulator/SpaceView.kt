@@ -1,6 +1,7 @@
 package cl.apophis.simulator
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.BitmapFactory
 import android.opengl.GLUtils
@@ -197,7 +198,7 @@ private class SpaceRenderer(private val view:SpaceView):GLSurfaceView.Renderer {
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_WRAP_S,GLES30.GL_REPEAT)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D,GLES30.GL_TEXTURE_WRAP_T,GLES30.GL_CLAMP_TO_EDGE)
             val options=BitmapFactory.Options().apply {
-                inPreferredConfig=BitmapFactory.Config.RGB_565
+                inPreferredConfig=Bitmap.Config.RGB_565
                 inScaled=false
             }
             val bitmap=view.context.assets.open(textureAssets.getValue(name)).use {
